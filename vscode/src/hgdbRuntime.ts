@@ -1,7 +1,6 @@
 import {EventEmitter} from 'events';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as utils from './utils';
 import * as ws from 'websocket';
 
 
@@ -23,6 +22,7 @@ export class HGDBRuntime extends EventEmitter {
     private _current_local_variables = new Map<number, Array<Map<string, string>>>();
     private _current_generator_names = new Map<number, string>();
     private _current_generator_variables = new Map<number, Array<Map<string, string>>>();
+    private _current_time = 0;
 
     // need to pull this from configuration
     private _runtimeIP = "0.0.0.0";
@@ -148,16 +148,19 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     private add_frame_info(payload: Object) {
-        const local: Object = payload["local"];
-        const generator: Object = payload["generator"];
-        const id = Number.parseInt(payload["id"]);
-        const instance_id = Number.parseInt(payload["instance_id"]);
+        const values = payload["values"];
+        const local: Object = values["local"];
+        const generator: Object = values["generator"];
+        const breakpoint_id = payload["breakpoint_id"];
+        const instance_id = payload["instance_id"];
         this._current_filename = payload["filename"];
         this._current_line_num = Number.parseInt(payload["line_num"]);
         this._current_breakpoint_instance_id = instance_id;
         // convert them into the format and store them
         const local_variables = new Map<string, string>(Object.entries(local));
         // merge this two
+        // notice this is used for having multiple instances values shown in the
+        // debug window
         const vars = this._current_local_variables.get(instance_id);
         const new_var = new Map<string, string>([...local_variables]);
         if (vars) {
@@ -174,9 +177,8 @@ export class HGDBRuntime extends EventEmitter {
         }
         // get instance name
         const instance_name = payload["instance_name"];
-        generator["instance_name"] = instance_name;
         this._current_generator_names.set(instance_id, instance_name);
-        return id;
+        return breakpoint_id;
     }
 
     /**
@@ -284,7 +286,11 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     public async getGlobalVariables() {
-        return [];
+        // only time so far
+        return [{
+            name: "Time",
+            value: this._current_time
+        }];
     }
 
     public stack(instance_id: number) {
@@ -361,6 +367,14 @@ export class HGDBRuntime extends EventEmitter {
                     reject();
                 }
             });
+            const payload = {
+                "request": true, "type": "breakpoint", "token": token,
+                "payload": {
+                    "filename": filename,
+                    "action": "remove"
+                }
+            };
+            this.send_payload(payload);
         });
     }
 
@@ -380,7 +394,7 @@ export class HGDBRuntime extends EventEmitter {
 
         // register callback
         const token = this.get_token();
-        this.add_callback(token, async(resp) => {
+        this.add_callback(token, async (resp) => {
             if (resp.status === "error") {
                 const reason = resp.payload.reason;
                 vscode.window.showErrorMessage(`Failed to connect to a running simulator. Reason: ${reason}`);
