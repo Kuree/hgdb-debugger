@@ -4,11 +4,12 @@ import {
     InitializedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, OutputEvent,
     Thread, StackFrame, Source, Handles, Breakpoint, ThreadEvent
 } from 'vscode-debugadapter';
-import { DebugProtocol } from 'vscode-debugprotocol';
-import { basename } from 'path';
-import { HGDBRuntime, HGDBBreakpoint } from './hgdbRuntime';
+import {DebugProtocol} from 'vscode-debugprotocol';
+import {basename} from 'path';
+import {HGDBRuntime, HGDBBreakpoint} from './hgdbRuntime';
 import * as vscode from 'vscode';
-const { Subject } = require('await-notify');
+
+const {Subject} = require('await-notify');
 
 interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     /** An absolute path to the "program" to debug. */
@@ -80,7 +81,11 @@ export class HGDBDebugSession extends LoggingDebugSession {
             this.sendEvent(new StoppedEvent('exception', 0));
         });
         this._runtime.on('breakpointValidated', (bp: HGDBBreakpoint) => {
-            this.sendEvent(new BreakpointEvent('changed', <DebugProtocol.Breakpoint>{ verified: bp.valid, id: bp.id, column: bp.column }));
+            this.sendEvent(new BreakpointEvent('changed', <DebugProtocol.Breakpoint>{
+                verified: bp.valid,
+                id: bp.id,
+                column: bp.column_num
+            }));
         });
         this._runtime.on('output', (text, filePath, line, column) => {
             const e: DebugProtocol.OutputEvent = new OutputEvent(`${text}\n`);
@@ -190,7 +195,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
 
         for (const bp_entry of breakpoints) {
             const bps = await this._runtime.verifyBreakpoint(path, this.convertClientLineToDebugger(bp_entry.line),
-                bp_entry.column ? this.convertClientColumnToDebugger(bp_entry.column) : undefined, bp_entry.condition);
+                bp_entry.column ? this.convertClientColumnToDebugger(bp_entry.column) : undefined);
             // tslint:disable-next-line:triple-equals
             if (bps.length == 0) {
                 // invalid breakpoint
@@ -201,10 +206,10 @@ export class HGDBDebugSession extends LoggingDebugSession {
             } else {
                 // we only need to create new breakpoint if we haven't created it yet at the same location
                 for (const bp of bps) {
-                    const key = `${path}:${bp.line}:${bp.column}`;
+                    const key = `${path}:${bp.line_num}:${bp.column_num}`;
                     if (!inserted_breakpoints.has(key)) {
-                        const b = <DebugProtocol.Breakpoint>new Breakpoint(bp.valid, this.convertDebuggerLineToClient(bp.line),
-                            bp.column > 0 ? this.convertDebuggerColumnToClient(bp.column) : undefined);
+                        const b = <DebugProtocol.Breakpoint>new Breakpoint(bp.valid, this.convertDebuggerLineToClient(bp.line_num),
+                            bp.column_num > 0 ? this.convertDebuggerColumnToClient(bp.column_num) : undefined);
                         b.id = bp.id;
 
                         breakpoints_result.push(b);
@@ -212,7 +217,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
                         // put it into the set
                         inserted_breakpoints.add(key);
                     }
-                    this._runtime.sendBreakpoint(bp.id, bp_entry.condition);
+                    this._runtime.setBreakpoint(bp.id, bp_entry.condition);
                 }
             }
 
@@ -268,7 +273,14 @@ export class HGDBDebugSession extends LoggingDebugSession {
             };
         } else {
             response.body = {
-                stackFrames: stk.frames.map((f: { index: number; name: string; file: string; line: number; }) => new StackFrame(f.index, f.name, this.createSource(f.file), this.convertDebuggerLineToClient(f.line))),
+                stackFrames: stk.frames.map((f: {
+                    index: number;
+                    name: string;
+                    file: string;
+                    line: number;
+                }) => new StackFrame(f.index,
+                    f.name, this.createSource(f.file),
+                    this.convertDebuggerLineToClient(f.line))),
                 totalFrames: stk.count
             };
         }
@@ -421,7 +433,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
     }
 
     private processNestedScope(name: string, handles: Set<string>, instance_id: number, stack_id: number,
-        variables: DebugProtocol.Variable[], value: string, isGenerator: Boolean) {
+                               variables: DebugProtocol.Variable[], value: string, isGenerator: Boolean) {
         if (name.includes(".")) {
             // only create handle for the first level
             // we will handle them recursively
@@ -443,8 +455,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 });
                 handles.add(handle_name);
             }
-        }
-        else {
+        } else {
             variables.push({
                 name: name,
                 type: "integer",
