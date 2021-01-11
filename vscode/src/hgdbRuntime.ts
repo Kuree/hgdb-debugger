@@ -1,11 +1,8 @@
-import { EventEmitter } from 'events';
+import {EventEmitter} from 'events';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as request from 'request';
-import * as express from 'express';
-import * as http from 'http';
-import * as bodyParser from 'body-parser';
 import * as utils from './utils';
+import * as ws from 'websocket';
 
 
 export interface HGDBBreakpoint {
@@ -30,9 +27,10 @@ export class HGDBRuntime extends EventEmitter {
     // need to pull this from configuration
     private _runtimeIP = "0.0.0.0";
     private _runtimePort = 8888;
-    private _debuggerPort: number = 8889;
     private _connected = false;
-    private _app: express.Application;
+    // websocket client
+    private _ws: ws.client = new ws.client();
+    private _connection: ws.connection | undefined;
 
     private _current_filename: string;
     private _current_line_num: number;
@@ -40,124 +38,139 @@ export class HGDBRuntime extends EventEmitter {
     private _srcPath: string = "";
     private _dstPath: string = "";
 
-    public current_filename() { return this._current_filename; }
-    public current_num() { return this._current_line_num; }
-    public getCurrentLocalVariables() { return this._current_local_variables; }
-    public getCurrentGeneratorVariables() { return this._current_generator_variables; }
-    public getCurrentGeneratorNames() { return this._current_generator_names; }
+    // token id
+    private _token_count: number = 0;
+    // token based callback
+    private _token_callbacks = new Map<string, Function>();
 
-    public getCurrentBreakpointInstanceId() { return this._current_breakpoint_instance_id; }
 
-    public setRuntimeIP(ip: string) { this._runtimeIP = ip; }
-    public setRuntimePort(port: number) { this._runtimePort = port; }
+    public current_filename() {
+        return this._current_filename;
+    }
 
-    public setSrcPath(path: string) { this._srcPath = path; }
-    public setDstPath(path: string) { this._dstPath = path; }
+    public current_num() {
+        return this._current_line_num;
+    }
 
+    public getCurrentLocalVariables() {
+        return this._current_local_variables;
+    }
+
+    public getCurrentGeneratorVariables() {
+        return this._current_generator_variables;
+    }
+
+    public getCurrentGeneratorNames() {
+        return this._current_generator_names;
+    }
+
+    public getCurrentBreakpointInstanceId() {
+        return this._current_breakpoint_instance_id;
+    }
+
+    public setRuntimeIP(ip: string) {
+        this._runtimeIP = ip;
+    }
+
+    public setRuntimePort(port: number) {
+        this._runtimePort = port;
+    }
+
+    public setSrcPath(path: string) {
+        this._srcPath = path;
+    }
+
+    public setDstPath(path: string) {
+        this._dstPath = path;
+    }
 
     constructor() {
         super();
     }
 
-    private on_breakpoint(req, res, is_exception = false) {
-        this._current_local_variables.clear();
-        this._current_generator_variables.clear();
-        this._current_generator_names.clear();
-        // we will get a list of values
-        var payload: Array<string> = req.body;
-        const id = this.add_frame_info(payload);
-        // recreate threads
-        if (!is_exception) {
-            this.fireEventsForBreakPoint(id);
-        } else {
-            this.fireEventsForException();
-        }
-    }
-
     /**
      * Start executing the given program.
      */
-    public async start(program: string, stopOnEntry: boolean) {
-        // setup the local server
-        this._app = express();
-        this._app.use(bodyParser.json());
-        this._app.post("/status/breakpoint", (req, res) => {
-            this.on_breakpoint(req, res);
+    public async start(program: string) {
+        // setting up the
+        this._ws.on("connectFailed", (error) => {
+            vscode.window.showErrorMessage(`Unable to connect to simulator using port ${this._runtimePort}`);
         });
 
-        this._app.post("/status/step", (req, res) => {
-            this.on_breakpoint(req, res);
+        this._ws.on("connect", (connection) => {
+            // we have successfully connected to the runtime server
+
+            this._connection = connection;
+            this._connected = true;
+            // need to add more handles
+            connection.on("message", (message) => {
+                // handle different responses
+                const str_data = message.utf8Data;
+                if (!str_data) {
+                    return;
+                }
+                const resp = JSON.parse(str_data);
+
+                // switch between different response types
+                const resp_type = resp.type;
+                switch (resp_type) {
+                    case "breakpoint": {
+                        // breakpoint response is server initialized
+                        this.on_breakpoint(resp.payload);
+                        break;
+                    }
+                    default:
+                        // we use token based req-resp here
+                        // each response will have a unique token matching with the request
+                        // so we don't need to check response type at all
+                        const token = resp.token;
+                        if (token) {
+                            const callback = this._token_callbacks[token];
+                            callback(resp.status, resp.payload);
+                            this._token_callbacks.delete(token);
+                        }
+                }
+            });
+
+            // if server closes first
+            connection.on("close", () => {
+                this.sendEvent('end');
+            });
+
+            // actually need to send a connection message to the debug server
+            this.send_connect_message(program);
+
+            // let the debugger know that we have properly connected and enter interactive mode
+            this.sendEvent('stopOnEntry');
         });
 
-        this._app.post("/status/exception", (req, res) => {
-            this.on_breakpoint(req, res, true);
-        });
-
-        
-        const ip = await utils.get_ip();
-        var server = http.createServer(this._app);
-        server.listen(undefined, ip, () => {
-
-            const address: any = server.address();
-            this._debuggerPort = address.port;
-
-            // connect to the server
-            this.connectRuntime(program);
-            if (stopOnEntry) {
-                this.sendEvent('stopOnEntry');
-            }
-        });
-
-        this._app.post("/stop", (_, __) => {
-            server.close();
-            this.sendEvent('end');
-        });
-
+        // connect to specified port
+        this._ws.connect(`ws://${this._runtimeIP}:${this._runtimePort}`);
     }
 
     public async stop() {
-        request.post(`http://${this._runtimeIP}:${this._runtimePort}/stop`);
-    }
-
-    public async getGlobalVariables() {
-        var promises: Array<Promise<{ name: string, value: any }>> = [];
-        promises.push(new Promise((resolve, reject) => {
-            request.get(`http://${this._runtimeIP}:${this._runtimePort}/time`, (_, res, body) => {
-                if (res.statusCode === 200) {
-                    // update to the time if possible
-                    if (typeof this._onTimeChange !== 'undefined') {
-                        this._onTimeChange(body);
-                    }
-                    resolve({ name: "Time", value: body });
-                } else {
-                    reject("Unknown value");
-                }
-            });
-        }));
-
-        var vars = await Promise.all(promises);
-        return vars;
+        this.send_command("stop");
     }
 
     private add_frame_info(payload: Object) {
-        var local: Object = payload["local"];
-        var generator: Object = payload["generator"];
-        var id = Number.parseInt(payload["id"]);
-        var instance_id = Number.parseInt(payload["instance_id"]);
+        const local: Object = payload["local"];
+        const generator: Object = payload["generator"];
+        const id = Number.parseInt(payload["id"]);
+        const instance_id = Number.parseInt(payload["instance_id"]);
         this._current_filename = payload["filename"];
         this._current_line_num = Number.parseInt(payload["line_num"]);
         this._current_breakpoint_instance_id = instance_id;
         // convert them into the format and store them
         const local_variables = new Map<string, string>(Object.entries(local));
         // merge this two
-        var vars = this._current_local_variables.get(instance_id);
+        const vars = this._current_local_variables.get(instance_id);
         const new_var = new Map<string, string>([...local_variables]);
         if (vars) {
             vars.push(new_var);
         } else {
             this._current_local_variables.set(instance_id, [new_var]);
         }
-        var gen_vars = this._current_generator_variables.get(instance_id);
+        const gen_vars = this._current_generator_variables.get(instance_id);
         const new_gen_var = new Map<string, string>(Object.entries(generator));
         if (gen_vars) {
             gen_vars.push(new_gen_var);
@@ -169,25 +182,6 @@ export class HGDBRuntime extends EventEmitter {
         generator["instance_name"] = instance_name;
         this._current_generator_names.set(instance_id, instance_name);
         return id;
-    }
-
-    private run(is_step: Boolean) {
-        if (this._connected) {
-            if (!is_step) {
-                // send the continue commend
-                if (this._connected) {
-                    request.post(`http://${this._runtimeIP}:${this._runtimePort}/continue`);
-                }
-
-            } else {
-                // send the step command
-                if (this._connected) {
-                    request.post(`http://${this._runtimeIP}:${this._runtimePort}/step_over`);
-                }
-            }
-        } else {
-            // inform user that it's not connected to the simulator runtime
-        }
     }
 
     /**
@@ -207,7 +201,7 @@ export class HGDBRuntime extends EventEmitter {
     /*
      * Verify breakpoint in file with given line.
      */
-    public async verifyBreakpoint(filename: string, line: number, column?: number, expr?: string): Promise<Array<HGDBBreakpoint>> {
+    public verifyBreakpoint(filename: string, line: number, column?: number, expr?: string) {
         // get the absolute path
         filename = path.resolve(filename);
         let bps = new Array<HGDBBreakpoint>();
@@ -225,7 +219,7 @@ export class HGDBRuntime extends EventEmitter {
                     if (res.statusCode === 200) {
                         let bps_data = JSON.parse(body);
                         bps_data.forEach(e => {
-                            let bp = <HGDBBreakpoint>{ valid: true, line, id: e.id, filename: filename, column: e.col };
+                            let bp = <HGDBBreakpoint>{valid: true, line, id: e.id, filename: filename, column: e.col};
                             let id = bp.id;
                             this.sendEvent('breakpointValidated', bp);
                             this._breakPoints.set(id, bp);
@@ -247,24 +241,12 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     /*
-     * Clear breakpoint in file with given line.
-     */
-    public async clearBreakPoint(filename: string, line: number) {
-        // get the absolute path
-        var filename = path.resolve(filename);
-        var bp: HGDBBreakpoint | undefined = undefined;
-        this.sendRemoveBreakpoint(filename, line);
-
-        return bp;
-    }
-
-    /*
      * Clear all breakpoints for file.
      */
     public async clearBreakpoints(filename: string) {
         // find the filename
-        var filename = path.resolve(filename);
-        await this.sendRemoveBreakpoints(filename);
+        const resolved_filename = path.resolve(filename);
+        await this.sendRemoveBreakpoints(resolved_filename);
     }
 
     public getBreakpoints(filename: string, line: number, fn: (id: Array<number>) => void) {
@@ -298,9 +280,13 @@ export class HGDBRuntime extends EventEmitter {
         return [instance_id, stack_index];
     }
 
+    public async getGlobalVariables() {
+        return [];
+    }
+
     public stack(instance_id: number) {
         // we only have one stack frame
-        var frames: Array<any> = [];
+        const frames: Array<any> = [];
         const frames_infos = this._current_local_variables.get(instance_id);
         if (!frames_infos) {
             // empty stack
@@ -328,31 +314,9 @@ export class HGDBRuntime extends EventEmitter {
 
     }
 
-
-
-    // get hierarchy
-    public getHierarchy(handle: string) {
-        var url = `http://${this._runtimeIP}:${this._runtimePort}/hierarchy/${handle}`;
-        return new Promise((resolve, reject) => {
-            request.post(url, (_, res, __) => {
-                if (res.statusCode === 200) {
-                    const value = JSON.parse(res.body);
-                    const values = value.value;
-                    if (typeof values !== 'undefined') {
-                        resolve({ name: value.name, value: values.value });
-                    } else {
-                        resolve({ name: value.name });
-                    }
-                } else {
-                    reject();
-                }
-            });
-        });
-    }
-
     public sendBreakpoint(breakpoint_id: number, expr?: string) {
         let url = `http://${this._runtimeIP}:${this._runtimePort}/breakpoint`;
-        let payload = { id: breakpoint_id, expr: expr || "" };
+        let payload = {id: breakpoint_id, expr: expr || ""};
         let options = {
             method: "post",
             body: payload,
@@ -360,20 +324,37 @@ export class HGDBRuntime extends EventEmitter {
             url: url
         };
         request(options);
+        if (this._connection) {
+            const payload = {
+                "request": true, "type": "breakpoint-id", "token": token,
+                "payload": {"id": bp_id, "action": "add"}
+            }
+        }
     }
 
     // private methods
+    private send_payload(payload: any) {
+        const payload_str = JSON.stringify(payload);
+        if (this._connection) {
+            this._connection.send(payload_str);
+        }
+    }
 
-    private sendRemoveBreakpoint(filename: string, line_num: Number) {
-        var payload = { filename: filename, line_num: line_num };
-        var url = `http://${this._runtimeIP}:${this._runtimePort}/breakpoint`;
-        var options = {
-            method: "delete",
-            body: payload,
-            json: true,
-            url: url
-        };
-        request(options);
+    private send_command(command: string) {
+        const payload = {"request": true, "type": "command", "payload": {"command": command}};
+        this.send_payload(payload);
+    }
+
+    private run(is_step: Boolean) {
+        if (this._connected) {
+            if (!is_step) {
+                this.send_command("continue");
+            } else {
+                this.send_command("step-over");
+            }
+        } else {
+            // inform user that it's not connected to the simulator runtime?
+        }
     }
 
     private async sendRemoveBreakpoints(filename: string) {
@@ -400,7 +381,7 @@ export class HGDBRuntime extends EventEmitter {
         }
 
         const ip = await utils.get_ip();
-        var payload = { ip: ip, port: this._debuggerPort, database: file };
+        var payload = {ip: ip, port: this._debuggerPort, database: file};
         if (this._srcPath !== "" && this._dstPath !== "") {
             payload["src_path"] = this._srcPath;
             payload["dst_path"] = this._dstPath;
@@ -432,7 +413,7 @@ export class HGDBRuntime extends EventEmitter {
                         var base_dir = path.dirname(file);
                         if (!opened_dirs.has(base_dir)) {
                             vscode.workspace.updateWorkspaceFolders(vscode.workspace.workspaceFolders ?
-                                vscode.workspace.workspaceFolders.length : 0, null, { uri: vscode.Uri.file(base_dir) });
+                                vscode.workspace.workspaceFolders.length : 0, null, {uri: vscode.Uri.file(base_dir)});
                             opened_dirs.add(base_dir);
                         }
                         var res = vscode.workspace.openTextDocument(vscode.Uri.file(file));
@@ -443,6 +424,38 @@ export class HGDBRuntime extends EventEmitter {
                 });
             }
         });
+    }
+
+    private on_breakpoint(payload, is_exception = false) {
+        this._current_local_variables.clear();
+        this._current_generator_variables.clear();
+        this._current_generator_names.clear();
+        // we will get a list of values
+        const id = this.add_frame_info(payload);
+        // recreate threads
+        if (!is_exception) {
+            this.fireEventsForBreakPoint(id);
+        } else {
+            this.fireEventsForException();
+        }
+    }
+
+    /**
+     * Get a random token via UUID
+     */
+    private get_token(): string {
+        const id = this._token_count++;
+        return id.toString();
+    }
+
+    private send_connect_message(db_filename: string) {
+        const payload = {
+            "request": true, "type": "connection", "payload": {
+                "db_filename": db_filename,
+            },
+            "token": this.get_token()
+        };
+        this.send_payload(payload);
     }
 
     /**

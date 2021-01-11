@@ -1,7 +1,7 @@
 'use strict';
 
 import * as vscode from 'vscode';
-import { WorkspaceFolder, DebugConfiguration, ProviderResult, CancellationToken, commands } from 'vscode';
+import { WorkspaceFolder, DebugConfiguration, ProviderResult, CancellationToken } from 'vscode';
 import { HGDBDebugSession } from './hgdbDebug';
 import * as Net from 'net';
 

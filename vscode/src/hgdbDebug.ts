@@ -2,7 +2,7 @@ import {
     Logger, logger,
     LoggingDebugSession,
     InitializedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, OutputEvent,
-    Thread, StackFrame, Scope, Source, Handles, Breakpoint, ThreadEvent
+    Thread, StackFrame, Source, Handles, Breakpoint, ThreadEvent
 } from 'vscode-debugadapter';
 import { DebugProtocol } from 'vscode-debugprotocol';
 import { basename } from 'path';
@@ -27,8 +27,7 @@ interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
 
 export class HGDBDebugSession extends LoggingDebugSession {
 
-    private _runtime: HGDBRuntime;
-    public runtime(): HGDBRuntime { return this._runtime; }
+    private readonly _runtime: HGDBRuntime;
 
     private _variableHandles = new Handles<string>();
 
@@ -170,7 +169,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         this._runtime.setDstPath(args.dstPath ? args.dstPath : "");
 
         // start the program in the runtime
-        this._runtime.start(args.program, !!args.stopOnEntry);
+        await this._runtime.start(args.program);
 
         this.sendResponse(response);
     }
@@ -192,6 +191,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         for (const bp_entry of breakpoints) {
             const bps = await this._runtime.verifyBreakpoint(path, this.convertClientLineToDebugger(bp_entry.line),
                 bp_entry.column ? this.convertClientColumnToDebugger(bp_entry.column) : undefined, bp_entry.condition);
+            // tslint:disable-next-line:triple-equals
             if (bps.length == 0) {
                 // invalid breakpoint
                 // use -1 for invalid bp id
@@ -234,7 +234,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
                     bps.push({
                         line: args.line,
                         column: this.convertDebuggerColumnToClient(col)
-                    })
+                    });
                 });
                 response.body = {
                     breakpoints: bps
