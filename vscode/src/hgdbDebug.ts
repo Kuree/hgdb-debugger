@@ -49,7 +49,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         this.setDebuggerLinesStartAt1(true);
         this.setDebuggerColumnsStartAt1(true);
 
-        this._runtime = new HGDBRuntime();
+        this._runtime = new HGDBRuntime(vscode.workspace[0].path.uri);
 
         let sendEventThread = (c: any, name: string) => {
             for (let i = 0; i < this._threads.length; i++) {
@@ -96,6 +96,10 @@ export class HGDBDebugSession extends LoggingDebugSession {
         });
         this._runtime.on('end', () => {
             this.sendEvent(new TerminatedEvent());
+        });
+        // error messages
+        this._runtime.on("errorMessage", (msg: string) => {
+            vscode.window.showErrorMessage(msg);
         });
     }
 

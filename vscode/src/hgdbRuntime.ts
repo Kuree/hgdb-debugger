@@ -1,5 +1,4 @@
 import {EventEmitter} from 'events';
-import * as vscode from 'vscode';
 import * as path from 'path';
 import * as ws from 'websocket';
 
@@ -34,6 +33,8 @@ export class HGDBRuntime extends EventEmitter {
 
     private _current_filename: string;
     private _current_line_num: number;
+
+    private _workspace_dir: string;
 
     // private _srcPath: string = "";
     // private _dstPath: string = "";
@@ -80,8 +81,9 @@ export class HGDBRuntime extends EventEmitter {
         // this._dstPath = path;
     }
 
-    constructor() {
+    constructor(workspace_dir: string) {
         super();
+        this._workspace_dir = workspace_dir;
     }
 
     /**
@@ -90,7 +92,7 @@ export class HGDBRuntime extends EventEmitter {
     public async start(program: string) {
         // setting up the
         this._ws.on("connectFailed", (error) => {
-            vscode.window.showErrorMessage(`Unable to connect to simulator using port ${this._runtimePort}: ${error}`);
+            this.sendEvent("errorMessage", `Unable to connect to simulator using port ${this._runtimePort}: ${error}`);
         });
 
         this._ws.on("connect", (connection) => {
@@ -162,11 +164,10 @@ export class HGDBRuntime extends EventEmitter {
         // notice this is used for having multiple instances values shown in the
         // debug window
         const vars = this._current_local_variables.get(instance_id);
-        const new_var = new Map<string, string>([...local_variables]);
         if (vars) {
-            vars.push(new_var);
+            vars.push(local_variables);
         } else {
-            this._current_local_variables.set(instance_id, [new_var]);
+            this._current_local_variables.set(instance_id, [local_variables]);
         }
         const gen_vars = this._current_generator_variables.get(instance_id);
         const new_gen_var = new Map<string, string>(Object.entries(generator));
@@ -213,7 +214,7 @@ export class HGDBRuntime extends EventEmitter {
             this.add_callback(token, (resp) => {
                 const status = resp.status;
                 if (status === "error") {
-                    vscode.window.showErrorMessage(`Cannot set breakpoint at ${filename}:${line}`);
+                    this.sendEvent("errorMessage", `Cannot set breakpoint at ${filename}:${line}`);
                     reject();
                 } else {
                     const bps_data = resp.payload;
@@ -380,16 +381,8 @@ export class HGDBRuntime extends EventEmitter {
 
     private async connectRuntime(file: string) {
         // resolve it to make it absolute path
-        if (file.charAt(0) !== '/') {
-            // using workplace folder
-            let work_dirs = vscode.workspace.workspaceFolders;
-            if (work_dirs) {
-                if (work_dirs.length > 1) {
-                    // too many workspace and unable to resolve
-                    return vscode.window.showErrorMessage(`Too many workspace opened. Unable to resolve ${file}`);
-                }
-                file = path.join(work_dirs[0].uri.path, file);
-            }
+        if (!path.isAbsolute(file)) {
+            file = path.join(this._workspace_dir, file);
         }
 
         // register callback
@@ -397,7 +390,7 @@ export class HGDBRuntime extends EventEmitter {
         this.add_callback(token, async (resp) => {
             if (resp.status === "error") {
                 const reason = resp.payload.reason;
-                vscode.window.showErrorMessage(`Failed to connect to a running simulator. Reason: ${reason}`);
+                this.sendEvent("errorMessage", `Failed to connect to a running simulator. Reason: ${reason}`);
                 await this.stop();
             } else {
                 this._connected = true;
