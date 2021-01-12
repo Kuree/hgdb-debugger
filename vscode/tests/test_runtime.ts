@@ -18,14 +18,14 @@ function get_random_port() {
 }
 
 
-function start_mock_server(extra_flags?: Array<string>) {
+function start_mock_server(port, extra_flags?: Array<string>) {
     const root = path.dirname(path.dirname(__filename));
     const build_dir = path.join(root, "build");
     const exe = path.join(build_dir, "tests", "test_debug_server");
     if (!extra_flags) {
         extra_flags = [];
     }
-    let flags = ["+DEBUG_LOG", "+DEBUG_NO_DB"];
+    let flags = [`+DEBUG_PORT=${port}`, "+DEBUG_LOG", "+DEBUG_NO_DB"];
     flags = flags.concat(extra_flags);
     assert(fs.existsSync(exe), "Unable to find " + path.basename(exe));
     return child_process.spawn(exe, flags);
@@ -33,9 +33,9 @@ function start_mock_server(extra_flags?: Array<string>) {
 
 
 describe('runtime', function () {
-    it('test_connect_stop', async function () {
+    it('test connect/stop', async () => {
         const port = get_random_port();
-        let p = start_mock_server(["+NO_EVAL", `+DEBUG_PORT=${port}`]);
+        let p = start_mock_server(port, ["+NO_EVAL"]);
         let closed = false;
         p.on("close", () => {
             // for some reason the exit code is null
@@ -58,6 +58,40 @@ describe('runtime', function () {
 
         assert(closed, "Unable to stop simulation");
         expect(p.exitCode).eq(0);
+        p.kill();
+    });
+
+    it("test bp location request", async () => {
+        const port = get_random_port();
+        let p = start_mock_server(port, ["+NO_EVAL"]);
+
+        let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
+        runtime.setRuntimePort(port);
+        runtime.on("errorMessage", (msg) => {
+            assert(false, msg);
+        });
+
+        let returned = false;
+        await sleep(100);
+        await runtime.start("ignore");
+        await sleep(100);
+        await runtime.getBreakpoints("/tmp/test.py", 1, (bps) => {
+            expect(bps.length).eq(1);
+            returned = true;
+        });
+        await sleep(100);
+        expect(returned).eq(true);
+
+        // no breakpoints
+        returned = false;
+        await runtime.getBreakpoints("/tmp/test.py", 42, (bps) => {
+            expect(bps.length).eq(0);
+            returned = true;
+        });
+
+        await sleep(100);
+        expect(returned).eq(true);
+
         p.kill();
     });
 });
