@@ -142,7 +142,7 @@ export class HGDBRuntime extends EventEmitter {
                     if (token) {
                         const cb = this._token_callbacks.get(token);
                         if (cb) {
-                            cb(resp.status, resp.payload);
+                            cb(resp);
                             this._token_callbacks.delete(token);
                         }
                     }
