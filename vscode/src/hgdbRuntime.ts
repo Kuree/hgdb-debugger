@@ -35,8 +35,8 @@ export class HGDBRuntime extends EventEmitter {
     private _current_filename: string;
     private _current_line_num: number;
 
-    private _srcPath: string = "";
-    private _dstPath: string = "";
+    // private _srcPath: string = "";
+    // private _dstPath: string = "";
 
     // token id
     private _token_count: number = 0;
@@ -73,11 +73,11 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     public setSrcPath(path: string) {
-        this._srcPath = path;
+        // this._srcPath = path;
     }
 
     public setDstPath(path: string) {
-        this._dstPath = path;
+        // this._dstPath = path;
     }
 
     constructor() {
