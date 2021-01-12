@@ -97,19 +97,23 @@
   "scripts": {
     "vscode:prepublish": "tsc -p ./src",
     "compile": "tsc -p ./src",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "mocha tests/**/*.ts --require ts-node/register --recursive"
   },
   "devDependencies": {
+    "@types/chai": "^4.2.14",
     "@types/glob": "^7.1.1",
-    "@types/mocha": "^5.2.6",
+    "@types/mocha": "^5.2.7",
     "@types/node": "^10.12.21",
     "@types/vscode": "^1.33.0",
+    "chai": "^4.2.0",
     "glob": "^7.1.4",
-    "mocha": "^6.1.4",
-    "typescript": "^3.3.1",
+    "mocha": "^6.2.3",
+    "ts-node": "^9.1.1",
     "tslint": "^5.12.1",
-    "vscode-test": "^1.2.0",
-    "vscode-debugadapter-testsupport": "^1.37.1"
+    "typescript": "^3.3.1",
+    "vscode-debugadapter-testsupport": "^1.37.1",
+    "vscode-test": "^1.2.0"
   },
   "dependencies": {
     "@types/internal-ip": "^4.1.0",
