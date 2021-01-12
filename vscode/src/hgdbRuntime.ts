@@ -95,47 +95,14 @@ export class HGDBRuntime extends EventEmitter {
             this.sendEvent("errorMessage", `Unable to connect to simulator using port ${this._runtimePort}: ${error}`);
         });
 
-        this._ws.on("connect", (connection) => {
+        this._ws.on("connect", async (connection) => {
             // we have successfully connected to the runtime server
 
             this._connection = connection;
-            this._connected = true;
             // need to add more handles
-            connection.on("message", (message) => {
-                // handle different responses
-                const str_data = message.utf8Data;
-                if (!str_data) {
-                    return;
-                }
-                const resp = JSON.parse(str_data);
+            this.set_connection(connection);
 
-                // switch between different response types
-                const resp_type = resp.type;
-                switch (resp_type) {
-                    case "breakpoint": {
-                        // breakpoint response is server initialized
-                        this.on_breakpoint(resp.payload);
-                        break;
-                    }
-                    default:
-                        // we use token based req-resp here
-                        // each response will have a unique token matching with the request
-                        // so we don't need to check response type at all
-                        const token = resp.token;
-                        if (token) {
-                            const callback = this._token_callbacks[token];
-                            callback(resp.status, resp.payload);
-                            this._token_callbacks.delete(token);
-                        }
-                }
-            });
-
-            // if server closes first
-            connection.on("close", () => {
-                this.sendEvent('end');
-            });
-
-            this.connectRuntime(program);
+            await this.connectRuntime(program);
 
             // let the debugger know that we have properly connected and enter interactive mode
             this.sendEvent('stopOnEntry');
@@ -145,8 +112,56 @@ export class HGDBRuntime extends EventEmitter {
         this._ws.connect(`ws://${this._runtimeIP}:${this._runtimePort}`);
     }
 
+    private set_connection(connection: ws.connection) {
+        let callback = (message) => {
+            // handle different responses
+            const str_data = message.utf8Data;
+            if (!str_data) {
+                return;
+            }
+            const resp = JSON.parse(str_data);
+            const status = resp.status;
+            if (status !== "success") {
+                this.sendEvent("errorMessage", resp.payload.reason);
+                return;
+            }
+
+            // switch between different response types
+            const resp_type = resp.type;
+            switch (resp_type) {
+                case "breakpoint": {
+                    // breakpoint response is server initialized
+                    this.on_breakpoint(resp.payload);
+                    break;
+                }
+                default:
+                    // we use token based req-resp here
+                    // each response will have a unique token matching with the request
+                    // so we don't need to check response type at all
+                    const token = resp.token;
+                    if (token) {
+                        const cb = this._token_callbacks.get(token);
+                        if (cb) {
+                            cb(resp.status, resp.payload);
+                            this._token_callbacks.delete(token);
+                        }
+                    }
+            }
+        };
+        // without the bind it will not work. glorious ts/js
+        connection.on("message", callback.bind(this));
+
+        // if server closes first
+        let close_cb = () => {
+            this.sendEvent('end');
+        };
+        connection.on("close", close_cb.bind(this));
+    }
+
     public async stop() {
-        this.send_command("stop");
+        await this.send_command("stop");
+        this._connected = false;
+        await this._connection?.close();
     }
 
     private add_frame_info(payload: Object) {
@@ -185,15 +200,15 @@ export class HGDBRuntime extends EventEmitter {
     /**
      * Continue execution to the end/beginning.
      */
-    public continue() {
-        this.run(false);
+    public async continue() {
+        await this.run(false);
     }
 
     /**
      * Step to the next/previous non empty line.
      */
-    public step() {
-        this.run(true);
+    public async step() {
+        await this.run(true);
     }
 
     /*
@@ -251,7 +266,7 @@ export class HGDBRuntime extends EventEmitter {
         await this.sendRemoveBreakpoints(resolved_filename);
     }
 
-    public getBreakpoints(filename: string, line: number, fn: (id: Array<number>) => void) {
+    public async getBreakpoints(filename: string, line: number, fn: (id: Array<number>) => void) {
         const token = this.get_token();
         this.add_callback(token, (resp) => {
             const status = resp.status;
@@ -266,7 +281,7 @@ export class HGDBRuntime extends EventEmitter {
                 fn(cols);
             }
         });
-        this.send_bp_location(filename, line, token);
+        await this.send_bp_location(filename, line, token);
     }
 
     public static get_frame_id(instance_id: number, stack_index: number): number {
@@ -321,37 +336,36 @@ export class HGDBRuntime extends EventEmitter {
                 count: num_frames
             };
         }
-
     }
 
-    public setBreakpoint(breakpoint_id: number, expr?: string) {
+    public async setBreakpoint(breakpoint_id: number, expr?: string) {
         // no need to set token since we already verify every breakpoint at this point
         const payload = {"request": true, "type": "breakpoint-id", "payload": {"id": breakpoint_id, "action": "add"}};
         if (expr) {
             payload["payload"]["condition"] = expr;
         }
-        this.send_payload(payload);
+        await this.send_payload(payload);
     }
 
     // private methods
-    private send_payload(payload: any) {
+    private async send_payload(payload: any) {
         const payload_str = JSON.stringify(payload);
         if (this._connection) {
-            this._connection.send(payload_str);
+            await this._connection.send(payload_str);
         }
     }
 
-    private send_command(command: string) {
+    private async send_command(command: string) {
         const payload = {"request": true, "type": "command", "payload": {"command": command}};
-        this.send_payload(payload);
+        await this.send_payload(payload);
     }
 
-    private run(is_step: Boolean) {
+    private async run(is_step: Boolean) {
         if (this._connected) {
             if (!is_step) {
-                this.send_command("continue");
+                await this.send_command("continue");
             } else {
-                this.send_command("step-over");
+                await this.send_command("step-over");
             }
         } else {
             // inform user that it's not connected to the simulator runtime?
@@ -394,10 +408,11 @@ export class HGDBRuntime extends EventEmitter {
                 await this.stop();
             } else {
                 this._connected = true;
+                this.sendEvent("simulatorConnected");
             }
         });
 
-        this.send_connect_message(file, token);
+        await this.send_connect_message(file, token);
     }
 
     private on_breakpoint(payload, is_exception = false) {
@@ -426,17 +441,17 @@ export class HGDBRuntime extends EventEmitter {
         this._token_callbacks.set(token, callback);
     }
 
-    private send_connect_message(db_filename: string, token: string) {
+    private async send_connect_message(db_filename: string, token: string) {
         const payload = {
             "request": true, "type": "connection", "payload": {
                 "db_filename": db_filename,
             },
             "token": token
         };
-        this.send_payload(payload);
+        await this.send_payload(payload);
     }
 
-    private send_bp_location(filename: string, line_num: number, token: string, column_num?: number) {
+    private async send_bp_location(filename: string, line_num: number, token: string, column_num?: number) {
         const payload = {
             "request": true, "type": "bp-location", "token": token,
             "payload": {"filename": filename, "line_num": line_num}
@@ -444,7 +459,7 @@ export class HGDBRuntime extends EventEmitter {
         if (column_num) {
             payload["payload"]["column_num"] = column_num;
         }
-        this.send_payload(payload);
+        await this.send_payload(payload);
     }
 
     /**
