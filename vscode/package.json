@@ -98,7 +98,7 @@
     "vscode:prepublish": "tsc -p ./src",
     "compile": "tsc -p ./src",
     "watch": "tsc -watch -p ./",
-    "test": "mocha tests/**/*.ts --require ts-node/register --recursive"
+    "test": "mocha tests/**/*.ts --require ts-node/register --recursive --exit"
   },
   "devDependencies": {
     "@types/chai": "^4.2.14",
