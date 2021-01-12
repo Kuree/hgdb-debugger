@@ -347,6 +347,19 @@ export class HGDBRuntime extends EventEmitter {
         await this.send_payload(payload);
     }
 
+    public async getSimulatorStatus(info_command: string = "breakpoints", cb) {
+        // used for debugging only. not actually used by the debug adapter
+        const token = this.get_token();
+        const payload = {
+            "request": true,
+            "type": "debugger-info",
+            "token": token,
+            "payload": {"command": info_command}
+        };
+        this.add_callback(token, cb);
+        await this.send_payload(payload);
+    }
+
     // private methods
     private async send_payload(payload: any) {
         const payload_str = JSON.stringify(payload);

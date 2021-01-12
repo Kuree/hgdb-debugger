@@ -58,7 +58,6 @@ describe('runtime', function () {
 
         assert(closed, "Unable to stop simulation");
         expect(p.exitCode).eq(0);
-        p.kill();
     });
 
     it("test bp location request", async () => {
@@ -89,6 +88,45 @@ describe('runtime', function () {
             returned = true;
         });
 
+        await sleep(100);
+        expect(returned).eq(true);
+
+        p.kill();
+    });
+
+    it("test add/remove breakpoint", async () => {
+        const port = get_random_port();
+        let p = start_mock_server(port, ["+NO_EVAL"]);
+
+        let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
+        runtime.setRuntimePort(port);
+        runtime.on("errorMessage", (msg) => {
+            assert(false, msg);
+        });
+
+        await sleep(100);
+        await runtime.start("ignore");
+        await sleep(100);
+
+        await runtime.setBreakpoint(0);
+        await sleep(100);
+
+        let returned = false;
+        await runtime.getSimulatorStatus("breakpoints", (resp) => {
+            returned = true;
+            expect(resp.payload.breakpoints.length).eq(1);
+        });
+        await sleep(100);
+        expect(returned).eq(true);
+
+        // test remove
+        returned = false;
+        await runtime.clearBreakpoints("/tmp/test.py");
+        await sleep(100);
+        await runtime.getSimulatorStatus("breakpoints", (resp) => {
+            returned = true;
+            expect(resp.payload.breakpoints.length).eq(0);
+        });
         await sleep(100);
         expect(returned).eq(true);
 
