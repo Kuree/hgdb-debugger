@@ -128,6 +128,7 @@
     "string-template": "^1.0.0",
     "sync-request": "^6.1.0",
     "vscode-debugadapter": "^1.37.1",
-    "vscode-debugprotocol": "^1.37.0"
+    "vscode-debugprotocol": "^1.37.0",
+    "websocket": "^1.0.33"
   }
 }
