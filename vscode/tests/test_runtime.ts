@@ -14,7 +14,7 @@ function sleep(ms) {
 function get_random_port() {
     const min = 20000;
     const max = 60000;
-    return Math.floor(Math.random() * (max - min)  + min);
+    return Math.floor(Math.random() * (max - min) + min);
 }
 
 
@@ -29,6 +29,19 @@ function start_mock_server(port, extra_flags?: Array<string>) {
     flags = flags.concat(extra_flags);
     assert(fs.existsSync(exe), "Unable to find " + path.basename(exe));
     return child_process.spawn(exe, flags);
+}
+
+async function set_breakpoint(runtime: HGDBRuntime.HGDBRuntime, breakpoint_id: number) {
+    runtime.on("errorMessage", (msg) => {
+        assert(false, msg);
+    });
+
+    await sleep(100);
+    await runtime.start("ignore");
+    await sleep(100);
+
+    await runtime.setBreakpoint(0);
+    await sleep(100);
 }
 
 
@@ -54,7 +67,7 @@ describe('runtime', function () {
             await runtime.stop();
         });
 
-        await sleep(1000);
+        await sleep(100);
 
         assert(closed, "Unable to stop simulation");
         expect(p.exitCode).eq(0);
@@ -73,12 +86,12 @@ describe('runtime', function () {
         let returned = false;
         await sleep(100);
         await runtime.start("ignore");
-        await sleep(100);
+        await sleep(50);
         await runtime.getBreakpoints("/tmp/test.py", 1, (bps) => {
             expect(bps.length).eq(1);
             returned = true;
         });
-        await sleep(100);
+        await sleep(50);
         expect(returned).eq(true);
 
         // no breakpoints
@@ -88,7 +101,7 @@ describe('runtime', function () {
             returned = true;
         });
 
-        await sleep(100);
+        await sleep(50);
         expect(returned).eq(true);
 
         p.kill();
@@ -100,36 +113,59 @@ describe('runtime', function () {
 
         let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
         runtime.setRuntimePort(port);
-        runtime.on("errorMessage", (msg) => {
-            assert(false, msg);
-        });
 
-        await sleep(100);
-        await runtime.start("ignore");
-        await sleep(100);
-
-        await runtime.setBreakpoint(0);
-        await sleep(100);
+        await set_breakpoint(runtime, 0);
 
         let returned = false;
         await runtime.getSimulatorStatus("breakpoints", (resp) => {
             returned = true;
             expect(resp.payload.breakpoints.length).eq(1);
         });
-        await sleep(100);
+        await sleep(50);
         expect(returned).eq(true);
 
         // test remove
         returned = false;
         await runtime.clearBreakpoints("/tmp/test.py");
-        await sleep(100);
+        await sleep(50);
         await runtime.getSimulatorStatus("breakpoints", (resp) => {
             returned = true;
             expect(resp.payload.breakpoints.length).eq(0);
         });
-        await sleep(100);
+        await sleep(50);
         expect(returned).eq(true);
 
+        p.kill();
+    });
+
+    it("test breakpoint hit/continue", async () => {
+        const port = get_random_port();
+        let p = start_mock_server(port);
+
+        let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
+        runtime.setRuntimePort(port);
+
+        await set_breakpoint(runtime, 0);
+        await sleep(50);
+        await runtime.continue();
+        await sleep(50);
+
+        // current scope should be set up properly
+        const instance_id = runtime.getCurrentBreakpointInstanceId();
+        expect(instance_id).eq(1);
+        const locals = runtime.getCurrentLocalVariables();
+        const instance_local = locals.get(instance_id);
+        assert(instance_local !== undefined);
+        if (instance_local) {
+            expect(instance_local[0].get("a")).eq("1");
+        }
+        // test generator variables as well
+        const gen_vars = runtime.getCurrentGeneratorVariables();
+        const instance_gen_var = gen_vars.get(instance_id);
+        assert(instance_gen_var !== undefined);
+        if (instance_gen_var) {
+            expect(instance_gen_var[0].get("a")).eq("1");
+        }
         p.kill();
     });
 });
