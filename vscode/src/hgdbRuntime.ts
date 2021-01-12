@@ -194,6 +194,8 @@ export class HGDBRuntime extends EventEmitter {
         // get instance name
         const instance_name = payload["instance_name"];
         this._current_generator_names.set(instance_id, instance_name);
+        // set time
+        this._current_time = payload["time"];
         return breakpoint_id;
     }
 
@@ -305,7 +307,7 @@ export class HGDBRuntime extends EventEmitter {
         // only time so far
         return [{
             name: "Time",
-            value: this._current_time
+            value: this._current_time.toString()
         }];
     }
 

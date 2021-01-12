@@ -2,12 +2,13 @@ import {
     Logger, logger,
     LoggingDebugSession,
     InitializedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, OutputEvent,
-    Thread, StackFrame, Source, Handles, Breakpoint, ThreadEvent
+    Thread, StackFrame, Source, Handles, Breakpoint, ThreadEvent, Scope
 } from 'vscode-debugadapter';
 import {DebugProtocol} from 'vscode-debugprotocol';
 import {basename} from 'path';
 import {HGDBRuntime, HGDBBreakpoint} from './hgdbRuntime';
 import * as vscode from 'vscode';
+import { abort } from 'process';
 
 const {Subject} = require('await-notify');
 
@@ -49,7 +50,16 @@ export class HGDBDebugSession extends LoggingDebugSession {
         this.setDebuggerLinesStartAt1(true);
         this.setDebuggerColumnsStartAt1(true);
 
-        this._runtime = new HGDBRuntime(vscode.workspace[0].path.uri);
+        // compute the path
+        const work_dirs = vscode.workspace.workspaceFolders;
+        let root_path = "";
+        if (work_dirs && work_dirs.length == 1) {
+            root_path = work_dirs[0].uri.path;
+        } else {
+            vscode.window.showErrorMessage("Unable to find suitable workspace");
+            abort();
+        }
+        this._runtime = new HGDBRuntime(root_path);
 
         let sendEventThread = (c: any, name: string) => {
             for (let i = 0; i < this._threads.length; i++) {
@@ -293,6 +303,24 @@ export class HGDBDebugSession extends LoggingDebugSession {
 
         this.sendResponse(response);
     }
+
+    protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
+		// we use frameId as thread id; see the comments above
+		const raw_id = args.frameId;
+		const ids = HGDBRuntime.get_instance_frame_id(raw_id);
+		const instance_id = ids[0];
+		const frame_id = ids[1];
+
+		response.body = {
+			scopes: [
+				new Scope("Local", this._variableHandles.create(`local-${instance_id}-${frame_id}`), false),
+				new Scope("Generator Variables", this._variableHandles.create(`generator-${instance_id}-${frame_id}`), false),
+				new Scope("Simulator Values", this._variableHandles.create(`global--${instance_id}-${frame_id}`), true)
+			]
+		};
+		this.sendResponse(response);
+	}
+
 
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request) {
 
