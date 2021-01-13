@@ -8,7 +8,7 @@ import {DebugProtocol} from 'vscode-debugprotocol';
 import {basename} from 'path';
 import {HGDBRuntime, HGDBBreakpoint} from './hgdbRuntime';
 import * as vscode from 'vscode';
-import { abort } from 'process';
+import {abort} from 'process';
 
 const {Subject} = require('await-notify');
 
@@ -244,23 +244,21 @@ export class HGDBDebugSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
-    protected breakpointLocationsRequest(response: DebugProtocol.BreakpointLocationsResponse, args: DebugProtocol.BreakpointLocationsArguments, request?: DebugProtocol.Request): void {
-
+    protected async breakpointLocationsRequest(response: DebugProtocol.BreakpointLocationsResponse, args: DebugProtocol.BreakpointLocationsArguments, request?: DebugProtocol.Request) {
         if (args.source.path) {
-            this._runtime.getBreakpoints(args.source.path, this.convertClientLineToDebugger(args.line), (cols) => {
-                let bps = new Array<DebugProtocol.BreakpointLocation>();
-                cols.forEach(col => {
-                    bps.push({
-                        line: args.line,
-                        column: this.convertDebuggerColumnToClient(col)
-                    });
+            const cols = await this._runtime.getBreakpoints(args.source.path,
+                this.convertClientLineToDebugger(args.line));
+            let bps = new Array<DebugProtocol.BreakpointLocation>();
+            cols.forEach(col => {
+                bps.push({
+                    line: args.line,
+                    column: this.convertDebuggerColumnToClient(col)
                 });
-                response.body = {
-                    breakpoints: bps
-                };
-                this.sendResponse(response);
             });
-
+            response.body = {
+                breakpoints: bps
+            };
+            this.sendResponse(response);
         } else {
             response.body = {
                 breakpoints: []
@@ -305,21 +303,21 @@ export class HGDBDebugSession extends LoggingDebugSession {
     }
 
     protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
-		// we use frameId as thread id; see the comments above
-		const raw_id = args.frameId;
-		const ids = HGDBRuntime.get_instance_frame_id(raw_id);
-		const instance_id = ids[0];
-		const frame_id = ids[1];
+        // we use frameId as thread id; see the comments above
+        const raw_id = args.frameId;
+        const ids = HGDBRuntime.get_instance_frame_id(raw_id);
+        const instance_id = ids[0];
+        const frame_id = ids[1];
 
-		response.body = {
-			scopes: [
-				new Scope("Local", this._variableHandles.create(`local-${instance_id}-${frame_id}`), false),
-				new Scope("Generator Variables", this._variableHandles.create(`generator-${instance_id}-${frame_id}`), false),
-				new Scope("Simulator Values", this._variableHandles.create(`global--${instance_id}-${frame_id}`), true)
-			]
-		};
-		this.sendResponse(response);
-	}
+        response.body = {
+            scopes: [
+                new Scope("Local", this._variableHandles.create(`local-${instance_id}-${frame_id}`), false),
+                new Scope("Generator Variables", this._variableHandles.create(`generator-${instance_id}-${frame_id}`), false),
+                new Scope("Simulator Values", this._variableHandles.create(`global--${instance_id}-${frame_id}`), true)
+            ]
+        };
+        this.sendResponse(response);
+    }
 
 
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request) {

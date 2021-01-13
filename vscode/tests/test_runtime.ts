@@ -38,10 +38,8 @@ async function set_breakpoint(runtime: HGDBRuntime.HGDBRuntime, breakpoint_id: n
 
     await sleep(100);
     await runtime.start("ignore");
-    await sleep(100);
 
-    await runtime.setBreakpoint(0);
-    await sleep(100);
+    await runtime.setBreakpoint(breakpoint_id);
 }
 
 
@@ -83,26 +81,14 @@ describe('runtime', function () {
             assert(false, msg);
         });
 
-        let returned = false;
         await sleep(100);
         await runtime.start("ignore");
-        await sleep(50);
-        await runtime.getBreakpoints("/tmp/test.py", 1, (bps) => {
-            expect(bps.length).eq(1);
-            returned = true;
-        });
-        await sleep(50);
-        expect(returned).eq(true);
+        let bps = await runtime.getBreakpoints("/tmp/test.py", 1);
+        expect(bps.length).eq(1);
 
         // no breakpoints
-        returned = false;
-        await runtime.getBreakpoints("/tmp/test.py", 42, (bps) => {
-            expect(bps.length).eq(0);
-            returned = true;
-        });
-
-        await sleep(50);
-        expect(returned).eq(true);
+        bps = await runtime.getBreakpoints("/tmp/test.py", 42);
+        expect(bps.length).eq(0);
 
         p.kill();
     });
@@ -116,24 +102,13 @@ describe('runtime', function () {
 
         await set_breakpoint(runtime, 0);
 
-        let returned = false;
-        await runtime.getSimulatorStatus("breakpoints", (resp) => {
-            returned = true;
-            expect(resp.payload.breakpoints.length).eq(1);
-        });
-        await sleep(50);
-        expect(returned).eq(true);
+        let payload = await runtime.getSimulatorStatus("breakpoints");
+        expect(payload.breakpoints.length).eq(1);
 
         // test remove
-        returned = false;
         await runtime.clearBreakpoints("/tmp/test.py");
-        await sleep(50);
-        await runtime.getSimulatorStatus("breakpoints", (resp) => {
-            returned = true;
-            expect(resp.payload.breakpoints.length).eq(0);
-        });
-        await sleep(50);
-        expect(returned).eq(true);
+        payload = await runtime.getSimulatorStatus("breakpoints");
+        expect(payload.breakpoints.length).eq(0);
 
         p.kill();
     });
@@ -146,10 +121,10 @@ describe('runtime', function () {
         runtime.setRuntimePort(port);
 
         await set_breakpoint(runtime, 0);
-        await sleep(50);
         await runtime.continue();
-        await sleep(50);
 
+        // wait a tiny bit for the server to send breakpoint hit
+        await sleep(100);
         // current scope should be set up properly
         const instance_id = runtime.getCurrentBreakpointInstanceId();
         expect(instance_id).eq(1);

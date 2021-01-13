@@ -95,21 +95,30 @@ export class HGDBRuntime extends EventEmitter {
             this.sendEvent("errorMessage", `Unable to connect to simulator using port ${this._runtimePort}: ${error}`);
         });
 
-        this._ws.on("connect", async (connection) => {
-            // we have successfully connected to the runtime server
+        let promise = new Promise<void>((resolve, reject) => {
+            this._ws.on("connect", async (connection) => {
+                // we have successfully connected to the runtime server
 
-            this._connection = connection;
-            // need to add more handles
-            this.set_connection(connection);
+                this._connection = connection;
+                // need to add more handles
+                this.set_connection(connection);
 
-            await this.connectRuntime(program);
+                // reject the promise if something wrong happens
+                this.on("errorMessage", () => {
+                    reject();
+                });
 
-            // let the debugger know that we have properly connected and enter interactive mode
-            this.sendEvent('stopOnEntry');
+                await this.connectRuntime(program);
+
+                // let the debugger know that we have properly connected and enter interactive mode
+                this.sendEvent('stopOnEntry');
+                resolve();
+            });
         });
 
         // connect to specified port
-        this._ws.connect(`ws://${this._runtimeIP}:${this._runtimePort}`);
+        await this._ws.connect(`ws://${this._runtimeIP}:${this._runtimePort}`);
+        await promise;
     }
 
     private set_connection(connection: ws.connection) {
@@ -123,7 +132,6 @@ export class HGDBRuntime extends EventEmitter {
             const status = resp.status;
             if (status !== "success") {
                 this.sendEvent("errorMessage", resp.payload.reason);
-                return;
             }
 
             // switch between different response types
@@ -268,22 +276,25 @@ export class HGDBRuntime extends EventEmitter {
         await this.sendRemoveBreakpoints(resolved_filename);
     }
 
-    public async getBreakpoints(filename: string, line: number, fn: (id: Array<number>) => void) {
+    public async getBreakpoints(filename: string, line: number) {
         const token = this.get_token();
-        this.add_callback(token, (resp) => {
-            const status = resp.status;
-            if (status === "error") {
-                fn([]);
-            } else {
-                const bps = resp.payload;
-                let cols = new Array<number>();
-                bps.forEach(bp => {
-                    cols.push(bp.column_num);
-                });
-                fn(cols);
-            }
+        let promise = new Promise<Array<number>>((resolve) => {
+            this.add_callback(token, (resp) => {
+                const status = resp.status;
+                if (status === "error") {
+                    resolve([]);
+                } else {
+                    const bps = resp.payload;
+                    let cols = new Array<number>();
+                    bps.forEach(bp => {
+                        cols.push(bp.column_num);
+                    });
+                    resolve(cols);
+                }
+            });
         });
         await this.send_bp_location(filename, line, token);
+        return promise;
     }
 
     public static get_frame_id(instance_id: number, stack_index: number): number {
@@ -341,15 +352,30 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     public async setBreakpoint(breakpoint_id: number, expr?: string) {
-        // no need to set token since we already verify every breakpoint at this point
-        const payload = {"request": true, "type": "breakpoint-id", "payload": {"id": breakpoint_id, "action": "add"}};
+        const token = this.get_token();
+        const payload = {
+            "request": true,
+            "type": "breakpoint-id",
+            "token": token,
+            "payload": {"id": breakpoint_id, "action": "add"}
+        };
         if (expr) {
             payload["payload"]["condition"] = expr;
         }
+        let promise = new Promise<void>((resolve, reject) => {
+            this.add_callback(token, (resp) => {
+                if (resp.status === "error") {
+                    reject();
+                } else {
+                    resolve();
+                }
+            });
+        });
         await this.send_payload(payload);
+        return promise;
     }
 
-    public async getSimulatorStatus(info_command: string = "breakpoints", cb) {
+    public async getSimulatorStatus(info_command: string = "breakpoints") {
         // used for debugging only. not actually used by the debug adapter
         const token = this.get_token();
         const payload = {
@@ -358,8 +384,17 @@ export class HGDBRuntime extends EventEmitter {
             "token": token,
             "payload": {"command": info_command}
         };
-        this.add_callback(token, cb);
+        let promise = new Promise<any>((resolve, reject) => {
+            this.add_callback(token, (resp) => {
+                if (resp.status === "error") {
+                    reject();
+                } else {
+                    resolve(resp.payload);
+                }
+            });
+        });
         await this.send_payload(payload);
+        return promise;
     }
 
     // private methods
@@ -416,18 +451,23 @@ export class HGDBRuntime extends EventEmitter {
 
         // register callback
         const token = this.get_token();
-        this.add_callback(token, async (resp) => {
-            if (resp.status === "error") {
-                const reason = resp.payload.reason;
-                this.sendEvent("errorMessage", `Failed to connect to a running simulator. Reason: ${reason}`);
-                await this.stop();
-            } else {
-                this._connected = true;
-                this.sendEvent("simulatorConnected");
-            }
+        let promise = new Promise<void>((resolve, reject) => {
+            this.add_callback(token, async (resp) => {
+                if (resp.status === "error") {
+                    const reason = resp.payload.reason;
+                    this.sendEvent("errorMessage", `Failed to connect to a running simulator. Reason: ${reason}`);
+                    await this.stop();
+                    reject();
+                } else {
+                    this._connected = true;
+                    this.sendEvent("simulatorConnected");
+                    resolve();
+                }
+            });
         });
 
         await this.send_connect_message(file, token);
+        return promise;
     }
 
     private on_breakpoint(payload, is_exception = false) {
@@ -435,10 +475,10 @@ export class HGDBRuntime extends EventEmitter {
         this._current_generator_variables.clear();
         this._current_generator_names.clear();
         // we will get a list of values
-        const id = this.add_frame_info(payload);
+        this.add_frame_info(payload);
         // recreate threads
         if (!is_exception) {
-            this.fireEventsForBreakPoint(id);
+            this.fireEventsForBreakPoint();
         } else {
             this.fireEventsForException();
         }
@@ -480,7 +520,7 @@ export class HGDBRuntime extends EventEmitter {
     /**
      * Fire events if the simulator hits a breakpoint
      */
-    private fireEventsForBreakPoint(breakpointID: number) {
+    private fireEventsForBreakPoint() {
         this.sendEvent("stopOnBreakpoint");
     }
 
