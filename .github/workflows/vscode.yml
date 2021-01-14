@@ -16,7 +16,7 @@ jobs:
         auth_header="$(git config --local --get http.https://github.com/.extraheader)"
         git submodule sync --recursive
         git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
-    - name: Checkout and build debug mock server
+    - name: Checkout and build debug mock server 💾
       shell: bash
       run: |
         cd vscode
@@ -25,10 +25,10 @@ jobs:
       env:
         CC: gcc-10
         CXX: g++-10
-    - name: Install npm modules
+    - name: Install npm modules 🔧
       shell: bash
       run: cd vscode && npm install
-    - name: Run tests
+    - name: Run tests ⚙️
       shell: bash
       run: |
         cd vscode
