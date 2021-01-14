@@ -102,12 +102,10 @@
   },
   "devDependencies": {
     "@types/chai": "^4.2.14",
-    "@types/glob": "^7.1.1",
     "@types/mocha": "^5.2.7",
     "@types/node": "^10.12.21",
     "@types/vscode": "^1.33.0",
     "chai": "^4.2.0",
-    "glob": "^7.1.4",
     "mocha": "^6.2.3",
     "ts-node": "^9.1.1",
     "tslint": "^5.12.1",
@@ -116,17 +114,7 @@
     "vscode-test": "^1.2.0"
   },
   "dependencies": {
-    "@types/internal-ip": "^4.1.0",
-    "@types/request": "^2.48.3",
-    "@types/string-template": "^1.0.2",
     "@types/websocket": "^1.0.1",
-    "await-notify": "^1.0.1",
-    "dev": "^0.1.3",
-    "express": "^4.17.1",
-    "internal-ip": "^4.3.0",
-    "request": "^2.88.0",
-    "string-template": "^1.0.0",
-    "sync-request": "^6.1.0",
     "vscode-debugadapter": "^1.37.1",
     "vscode-debugprotocol": "^1.37.0",
     "websocket": "^1.0.33"
