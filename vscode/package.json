@@ -115,6 +115,7 @@
   },
   "dependencies": {
     "@types/websocket": "^1.0.1",
+    "await-notify": "^1.0.1",
     "vscode-debugadapter": "^1.37.1",
     "vscode-debugprotocol": "^1.37.0",
     "websocket": "^1.0.33"
