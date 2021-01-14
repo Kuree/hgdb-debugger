@@ -1,0 +1,39 @@
+name: Test VS Code
+
+on: [push, pull_request]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'skip ci')"
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Checkout submodules 🖥️
+      shell: bash
+      run: |
+        auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+        git submodule sync --recursive
+        git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+    - name: Checkout and build debug mock server
+      shell: bash
+      run: |
+        cd vscode
+        git clone --recurse-submodules -j8 --depth 1 https://github.com/Kuree/hgdb
+        mkdir build && cd build && cmake ../hgdb && make -j4 test_debug_server
+      env:
+        CC: gcc-10
+        CXX: g++-10
+    - uses: actions/setup-node@v2
+      with:
+        node-version: '10'
+    - name: Install npm modules
+      shell: bash
+      run: cd vscode && npm install
+    - name: Run tests
+      shell: bash
+      run: |
+        cd vscode
+        npm run compile
+        npm run test
