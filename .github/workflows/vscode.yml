@@ -25,9 +25,6 @@ jobs:
       env:
         CC: gcc-10
         CXX: g++-10
-    - uses: actions/setup-node@v2
-      with:
-        node-version: '10'
     - name: Install npm modules
       shell: bash
       run: cd vscode && npm install
