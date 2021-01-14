@@ -79,8 +79,17 @@ export class HGDBDebugSession extends LoggingDebugSession {
             for (let i = 0; i < this._threads.length; i++) {
                 this.sendEvent(new ThreadEvent('exited', this._threads[i].id));
             }
-            this._threads = [new Thread(this._runtime.getCurrentBreakpointInstanceId(), "Thread 0")];
-            this.sendEvent(new StoppedEvent('breakpoint', this._runtime.getCurrentBreakpointInstanceId()));
+            this._threads = [];
+            const names = this._runtime.getCurrentGeneratorNames();
+            names.forEach((name: string, instance_id: number) => {
+                this._threads.push(new Thread(instance_id, name));
+            });
+            // first breakpoint and the reset pause?
+            let idx = 0;
+            names.forEach((_: string, instance_id: number) => {
+                const reason = idx++ === 0? 'breakpoint': "pause";
+                this.sendEvent(new StoppedEvent(reason, instance_id));
+            });
         });
         this._runtime.on('stopOnDataBreakpoint', () => {
             this._threads = [new Thread(0, "Thread 0")];

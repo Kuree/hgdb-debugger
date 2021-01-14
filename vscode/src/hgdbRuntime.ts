@@ -17,7 +17,6 @@ export class HGDBRuntime extends EventEmitter {
     // maps from id to the actual breakpoint
     private _breakPoints = new Map<number, HGDBBreakpoint>();
 
-    private _current_breakpoint_instance_id = 0;
     private _current_local_variables = new Map<number, Array<Map<string, string>>>();
     private _current_generator_names = new Map<number, string>();
     private _current_generator_variables = new Map<number, Array<Map<string, string>>>();
@@ -34,7 +33,7 @@ export class HGDBRuntime extends EventEmitter {
     private _current_filename: string;
     private _current_line_num: number;
 
-    private _workspace_dir: string;
+    private readonly _workspace_dir: string;
 
     // private _srcPath: string = "";
     // private _dstPath: string = "";
@@ -61,8 +60,8 @@ export class HGDBRuntime extends EventEmitter {
         return this._current_generator_variables;
     }
 
-    public getCurrentBreakpointInstanceId() {
-        return this._current_breakpoint_instance_id;
+    public getCurrentGeneratorNames() {
+        return this._current_generator_names;
     }
 
     public setRuntimeIP(ip: string) {
@@ -173,38 +172,41 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     private add_frame_info(payload: Object) {
-        const values = payload["values"];
-        const local: Object = values["local"];
-        const generator: Object = values["generator"];
-        const breakpoint_id = payload["breakpoint_id"];
-        const instance_id = payload["instance_id"];
         this._current_filename = payload["filename"];
         this._current_line_num = Number.parseInt(payload["line_num"]);
-        this._current_breakpoint_instance_id = instance_id;
-        // convert them into the format and store them
-        const local_variables = new Map<string, string>(Object.entries(local));
-        // merge this two
-        // notice this is used for having multiple instances values shown in the
-        // debug window
-        const vars = this._current_local_variables.get(instance_id);
-        if (vars) {
-            vars.push(local_variables);
-        } else {
-            this._current_local_variables.set(instance_id, [local_variables]);
+
+        const instances: Array<any> = payload["instances"];
+        for (let i = 0; i < instances.length; i++) {
+            const entry = instances[i];
+            const local: Object = entry["local"];
+            const generator: Object = entry["generator"];
+            const instance_id = entry["instance_id"];
+            const instance_name = entry["instance_name"];
+
+            // convert them into the format and store them
+            const local_variables = new Map<string, string>(Object.entries(local));
+            // merge this two
+            // notice this is used for having multiple instances values shown in the
+            // debug window
+            const vars = this._current_local_variables.get(instance_id);
+            if (vars) {
+                vars.push(local_variables);
+            } else {
+                this._current_local_variables.set(instance_id, [local_variables]);
+            }
+            const gen_vars = this._current_generator_variables.get(instance_id);
+            const new_gen_var = new Map<string, string>(Object.entries(generator));
+            if (gen_vars) {
+                gen_vars.push(new_gen_var);
+            } else {
+                this._current_generator_variables.set(instance_id, [new_gen_var]);
+            }
+            // get instance name
+            this._current_generator_names.set(instance_id, instance_name);
         }
-        const gen_vars = this._current_generator_variables.get(instance_id);
-        const new_gen_var = new Map<string, string>(Object.entries(generator));
-        if (gen_vars) {
-            gen_vars.push(new_gen_var);
-        } else {
-            this._current_generator_variables.set(instance_id, [new_gen_var]);
-        }
-        // get instance name
-        const instance_name = payload["instance_name"];
-        this._current_generator_names.set(instance_id, instance_name);
+
         // set time
         this._current_time = payload["time"];
-        return breakpoint_id;
     }
 
     /**

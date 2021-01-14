@@ -74,6 +74,7 @@ describe('runtime', function () {
     it("test bp location request", async () => {
         const port = get_random_port();
         let p = start_mock_server(port, ["+NO_EVAL"]);
+        const num_instances = 2;
 
         let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
         runtime.setRuntimePort(port);
@@ -84,7 +85,7 @@ describe('runtime', function () {
         await sleep(100);
         await runtime.start("ignore");
         let bps = await runtime.getBreakpoints("/tmp/test.py", 1);
-        expect(bps.length).eq(1);
+        expect(bps.length).eq(num_instances);
 
         // no breakpoints
         bps = await runtime.getBreakpoints("/tmp/test.py", 42);
@@ -126,8 +127,7 @@ describe('runtime', function () {
         // wait a tiny bit for the server to send breakpoint hit
         await sleep(100);
         // current scope should be set up properly
-        const instance_id = runtime.getCurrentBreakpointInstanceId();
-        expect(instance_id).eq(1);
+        const instance_id = 1;
         const locals = runtime.getCurrentLocalVariables();
         const instance_local = locals.get(instance_id);
         assert(instance_local !== undefined);
