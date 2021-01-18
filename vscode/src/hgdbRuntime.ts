@@ -1,6 +1,7 @@
 import {EventEmitter} from 'events';
 import * as path from 'path';
 import * as ws from 'websocket';
+import * as util from './util';
 
 
 export interface HGDBBreakpoint {
@@ -184,7 +185,8 @@ export class HGDBRuntime extends EventEmitter {
             const instance_name = entry["instance_name"];
 
             // convert them into the format and store them
-            const local_variables = new Map<string, string>(Object.entries(local));
+            const local_variables_raw = new Map<string, string>(Object.entries(local));
+            const local_variables = util.convertToDotMap(local_variables_raw);
             // merge this two
             // notice this is used for having multiple instances values shown in the
             // debug window
@@ -195,7 +197,8 @@ export class HGDBRuntime extends EventEmitter {
                 this._current_local_variables.set(instance_id, [local_variables]);
             }
             const gen_vars = this._current_generator_variables.get(instance_id);
-            const new_gen_var = new Map<string, string>(Object.entries(generator));
+            const new_gen_var_raw = new Map<string, string>(Object.entries(generator));
+            const new_gen_var = util.convertToDotMap(new_gen_var_raw);
             if (gen_vars) {
                 gen_vars.push(new_gen_var);
             } else {
