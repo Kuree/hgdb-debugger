@@ -44,6 +44,10 @@ export class HGDBRuntime extends EventEmitter {
     // token based callback
     private _token_callbacks = new Map<string, Function>();
 
+    // pending requests. this is basically a queue of requests
+    // needed to send before the debug server is connected
+    private _queued_payload = new Array<object>();
+
 
     public current_filename() {
         return this._current_filename;
@@ -109,6 +113,12 @@ export class HGDBRuntime extends EventEmitter {
                 });
 
                 await this.connectRuntime(program);
+
+                // if there is any queued payload, this is the time to send out
+                for (let i = 0; i < this._queued_payload.length; i++) {
+                    await this.send_payload(this._queued_payload[i]);
+                }
+                this._queued_payload.length = 0;
 
                 // let the debugger know that we have properly connected and enter interactive mode
                 this.sendEvent('stopOnEntry');
@@ -299,7 +309,7 @@ export class HGDBRuntime extends EventEmitter {
             });
         });
         await this.send_bp_location(filename, line, token);
-        return promise;
+        return await promise;
     }
 
     public static get_frame_id(instance_id: number, stack_index: number): number {
@@ -407,6 +417,9 @@ export class HGDBRuntime extends EventEmitter {
         const payload_str = JSON.stringify(payload);
         if (this._connection) {
             await this._connection.send(payload_str);
+        } else {
+            // put it in the queue
+            this._queued_payload.push(payload);
         }
     }
 
