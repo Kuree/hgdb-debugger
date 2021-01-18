@@ -36,8 +36,8 @@ export class HGDBRuntime extends EventEmitter {
 
     private readonly _workspace_dir: string;
 
-    // private _srcPath: string = "";
-    // private _dstPath: string = "";
+    private _srcPath: string = "";
+    private _dstPath: string = "";
 
     // token id
     private _token_count: number = 0;
@@ -78,11 +78,11 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     public setSrcPath(path: string) {
-        // this._srcPath = path;
+        this._srcPath = path;
     }
 
     public setDstPath(path: string) {
-        // this._dstPath = path;
+        this._dstPath = path;
     }
 
     constructor(workspace_dir: string) {
@@ -515,12 +515,17 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     private async send_connect_message(db_filename: string, token: string) {
-        const payload = {
+        let payload = {
             "request": true, "type": "connection", "payload": {
                 "db_filename": db_filename,
             },
             "token": token
         };
+        if (this._srcPath.length > 0 && this._dstPath.length > 0) {
+            // add path mapping as well
+            payload["payload"]["path_mapping"] = {};
+            payload["payload"]["path_mapping"][this._srcPath] = this._dstPath;
+        }
         await this.send_payload(payload);
     }
 
