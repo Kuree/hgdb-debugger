@@ -1,5 +1,4 @@
 import {
-    Logger, logger,
     LoggingDebugSession,
     InitializedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, OutputEvent,
     Thread, StackFrame, Source, Handles, Breakpoint, ThreadEvent, Scope
@@ -18,10 +17,6 @@ interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     /* runtime IP */
     runtimeIP: string;
     runtimePort: number;
-    /** Automatically stop target after launch. If not specified, target does not stop. */
-    stopOnEntry?: boolean;
-    /** enable logging the Debug Adapter Protocol */
-    trace?: boolean;
     // remote debugging
     srcPath?: string;
     dstPath?: string;
@@ -53,7 +48,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         // compute the path
         const work_dirs = vscode.workspace.workspaceFolders;
         let root_path = "";
-        if (work_dirs && work_dirs.length == 1) {
+        if (work_dirs && work_dirs.length === 1) {
             root_path = work_dirs[0].uri.path;
         } else {
             vscode.window.showErrorMessage("Unable to find suitable workspace");
@@ -178,10 +173,6 @@ export class HGDBDebugSession extends LoggingDebugSession {
     }
 
     protected async launchRequest(response: DebugProtocol.LaunchResponse, args: LaunchRequestArguments) {
-
-        // make sure to 'Stop' the buffered logging if 'trace' is not set
-        logger.setup(args.trace ? Logger.LogLevel.Verbose : Logger.LogLevel.Stop, false);
-
         // wait until configuration has finished (and configurationDoneRequest has been called)
         await this._configurationDone.wait(1000);
 
@@ -237,7 +228,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
                         // put it into the set
                         inserted_breakpoints.add(key);
                     }
-                    this._runtime.setBreakpoint(bp.id, bp_entry.condition);
+                    await this._runtime.setBreakpoint(bp.id, bp_entry.condition);
                 }
             }
 
@@ -311,7 +302,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
     protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
         // we use frameId as thread id; see the comments above
         const raw_id = args.frameId;
-        const ids = HGDBRuntime.get_instance_frame_id(raw_id);
+        const ids = HGDBRuntime.getInstanceFrameID(raw_id);
         const instance_id = ids[0];
         const frame_id = ids[1];
 
@@ -504,13 +495,13 @@ export class HGDBDebugSession extends LoggingDebugSession {
     protected evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments): void {
     }
 
-    protected continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments): void {
-        this._runtime.continue();
+    protected async continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments) {
+        await this._runtime.continue();
         this.sendResponse(response);
     }
 
-    protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments): void {
-        this._runtime.step();
+    protected async nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments) {
+        await this._runtime.step();
         this.sendResponse(response);
     }
 

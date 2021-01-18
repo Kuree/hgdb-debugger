@@ -18,10 +18,10 @@ export class HGDBRuntime extends EventEmitter {
     // maps from id to the actual breakpoint
     private _breakPoints = new Map<number, HGDBBreakpoint>();
 
-    private _current_local_variables = new Map<number, Array<Map<string, string>>>();
-    private _current_generator_names = new Map<number, string>();
-    private _current_generator_variables = new Map<number, Array<Map<string, string>>>();
-    private _current_time = 0;
+    private _currentLocalVariables = new Map<number, Array<Map<string, string>>>();
+    private _currentGeneratorNames = new Map<number, string>();
+    private _currentGeneratorVariables = new Map<number, Array<Map<string, string>>>();
+    private _currentTime = 0;
 
     // need to pull this from configuration
     private _runtimeIP = "0.0.0.0";
@@ -31,42 +31,42 @@ export class HGDBRuntime extends EventEmitter {
     private _ws: ws.client = new ws.client();
     private _connection: ws.connection | undefined;
 
-    private _current_filename: string;
-    private _current_line_num: number;
+    private _currentFilename: string;
+    private _currentLineNum: number;
 
-    private readonly _workspace_dir: string;
+    private readonly _workspaceDir: string;
 
     private _srcPath: string = "";
     private _dstPath: string = "";
 
     // token id
-    private _token_count: number = 0;
+    private _tokenCount: number = 0;
     // token based callback
-    private _token_callbacks = new Map<string, Function>();
+    private _tokenCallbacks = new Map<string, Function>();
 
     // pending requests. this is basically a queue of requests
     // needed to send before the debug server is connected
-    private _queued_payload = new Array<object>();
+    private _queuedPayload = new Array<object>();
 
 
-    public current_filename() {
-        return this._current_filename;
+    public currentFilename() {
+        return this._currentFilename;
     }
 
-    public current_num() {
-        return this._current_line_num;
+    public currentNum() {
+        return this._currentLineNum;
     }
 
     public getCurrentLocalVariables() {
-        return this._current_local_variables;
+        return this._currentLocalVariables;
     }
 
     public getCurrentGeneratorVariables() {
-        return this._current_generator_variables;
+        return this._currentGeneratorVariables;
     }
 
     public getCurrentGeneratorNames() {
-        return this._current_generator_names;
+        return this._currentGeneratorNames;
     }
 
     public setRuntimeIP(ip: string) {
@@ -87,7 +87,7 @@ export class HGDBRuntime extends EventEmitter {
 
     constructor(workspace_dir: string) {
         super();
-        this._workspace_dir = workspace_dir;
+        this._workspaceDir = workspace_dir;
     }
 
     /**
@@ -105,7 +105,7 @@ export class HGDBRuntime extends EventEmitter {
 
                 this._connection = connection;
                 // need to add more handles
-                this.set_connection(connection);
+                this.setConnection(connection);
 
                 // reject the promise if something wrong happens
                 this.on("errorMessage", () => {
@@ -115,10 +115,10 @@ export class HGDBRuntime extends EventEmitter {
                 await this.connectRuntime(program);
 
                 // if there is any queued payload, this is the time to send out
-                for (let i = 0; i < this._queued_payload.length; i++) {
-                    await this.send_payload(this._queued_payload[i]);
+                for (let i = 0; i < this._queuedPayload.length; i++) {
+                    await this.sendPayload(this._queuedPayload[i]);
                 }
-                this._queued_payload.length = 0;
+                this._queuedPayload.length = 0;
 
                 // let the debugger know that we have properly connected and enter interactive mode
                 this.sendEvent('stopOnEntry');
@@ -131,7 +131,7 @@ export class HGDBRuntime extends EventEmitter {
         await promise;
     }
 
-    private set_connection(connection: ws.connection) {
+    private setConnection(connection: ws.connection) {
         let callback = (message) => {
             // handle different responses
             const str_data = message.utf8Data;
@@ -149,7 +149,7 @@ export class HGDBRuntime extends EventEmitter {
             switch (resp_type) {
                 case "breakpoint": {
                     // breakpoint response is server initialized
-                    this.on_breakpoint(resp.payload);
+                    this.onBreakpoint(resp.payload);
                     break;
                 }
                 default:
@@ -158,10 +158,10 @@ export class HGDBRuntime extends EventEmitter {
                     // so we don't need to check response type at all
                     const token = resp.token;
                     if (token) {
-                        const cb = this._token_callbacks.get(token);
+                        const cb = this._tokenCallbacks.get(token);
                         if (cb) {
                             cb(resp);
-                            this._token_callbacks.delete(token);
+                            this._tokenCallbacks.delete(token);
                         }
                     }
             }
@@ -177,14 +177,14 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     public async stop() {
-        await this.send_command("stop");
+        await this.sendCommand("stop");
         this._connected = false;
         await this._connection?.close();
     }
 
-    private add_frame_info(payload: Object) {
-        this._current_filename = payload["filename"];
-        this._current_line_num = Number.parseInt(payload["line_num"]);
+    private addFrameInfo(payload: Object) {
+        this._currentFilename = payload["filename"];
+        this._currentLineNum = Number.parseInt(payload["line_num"]);
 
         const instances: Array<any> = payload["instances"];
         for (let i = 0; i < instances.length; i++) {
@@ -200,26 +200,26 @@ export class HGDBRuntime extends EventEmitter {
             // merge this two
             // notice this is used for having multiple instances values shown in the
             // debug window
-            const vars = this._current_local_variables.get(instance_id);
+            const vars = this._currentLocalVariables.get(instance_id);
             if (vars) {
                 vars.push(local_variables);
             } else {
-                this._current_local_variables.set(instance_id, [local_variables]);
+                this._currentLocalVariables.set(instance_id, [local_variables]);
             }
-            const gen_vars = this._current_generator_variables.get(instance_id);
+            const gen_vars = this._currentGeneratorVariables.get(instance_id);
             const new_gen_var_raw = new Map<string, string>(Object.entries(generator));
             const new_gen_var = util.convertToDotMap(new_gen_var_raw);
             if (gen_vars) {
                 gen_vars.push(new_gen_var);
             } else {
-                this._current_generator_variables.set(instance_id, [new_gen_var]);
+                this._currentGeneratorVariables.set(instance_id, [new_gen_var]);
             }
             // get instance name
-            this._current_generator_names.set(instance_id, instance_name);
+            this._currentGeneratorNames.set(instance_id, instance_name);
         }
 
         // set time
-        this._current_time = payload["time"];
+        this._currentTime = payload["time"];
     }
 
     /**
@@ -249,9 +249,9 @@ export class HGDBRuntime extends EventEmitter {
         }
 
         let get_breakpoints = new Promise<void>((resolve, reject) => {
-            const token = this.get_token();
+            const token = this.getToken();
             // register a callback
-            this.add_callback(token, (resp) => {
+            this.addCallback(token, (resp) => {
                 const status = resp.status;
                 if (status === "error") {
                     this.sendEvent("errorMessage", `Cannot set breakpoint at ${filename}:${line}`);
@@ -274,7 +274,7 @@ export class HGDBRuntime extends EventEmitter {
                     resolve();
                 }
             });
-            this.send_bp_location(filename, line, token, column);
+            this.sendBpLocation(filename, line, token, column);
         });
 
         await get_breakpoints;
@@ -292,9 +292,9 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     public async getBreakpoints(filename: string, line: number) {
-        const token = this.get_token();
+        const token = this.getToken();
         let promise = new Promise<Array<number>>((resolve) => {
-            this.add_callback(token, (resp) => {
+            this.addCallback(token, (resp) => {
                 const status = resp.status;
                 if (status === "error") {
                     resolve([]);
@@ -308,11 +308,11 @@ export class HGDBRuntime extends EventEmitter {
                 }
             });
         });
-        await this.send_bp_location(filename, line, token);
+        await this.sendBpLocation(filename, line, token);
         return await promise;
     }
 
-    public static get_frame_id(instance_id: number, stack_index: number): number {
+    public static getFrameID(instance_id: number, stack_index: number): number {
         // notice that we need to store instance id and stack index into a single
         // number
         // since in JS the number is 2^53, according to
@@ -323,7 +323,7 @@ export class HGDBRuntime extends EventEmitter {
         return instance_id << 13 | stack_index;
     }
 
-    public static get_instance_frame_id(frame_id: number): [number, number] {
+    public static getInstanceFrameID(frame_id: number): [number, number] {
         const instance_id = frame_id >> 13;
         const stack_index = frame_id & ((1 << 13) - 1);
         return [instance_id, stack_index];
@@ -333,14 +333,14 @@ export class HGDBRuntime extends EventEmitter {
         // only time so far
         return [{
             name: "Time",
-            value: this._current_time.toString()
+            value: this._currentTime.toString()
         }];
     }
 
     public stack(instance_id: number) {
         // we only have one stack frame
         const frames: Array<any> = [];
-        const frames_infos = this._current_local_variables.get(instance_id);
+        const frames_infos = this._currentLocalVariables.get(instance_id);
         if (!frames_infos) {
             // empty stack
             return {
@@ -349,11 +349,11 @@ export class HGDBRuntime extends EventEmitter {
             };
         } else {
             const num_frames = frames_infos.length;
-            const filename = this.current_filename();
-            const line_num = this.current_num();
+            const filename = this.currentFilename();
+            const line_num = this.currentNum();
             for (let i = 0; i < num_frames; i++) {
                 frames.push({
-                    index: HGDBRuntime.get_frame_id(instance_id, i),
+                    index: HGDBRuntime.getFrameID(instance_id, i),
                     name: `Scope ${i}`,
                     file: filename,
                     line: line_num
@@ -367,7 +367,7 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     public async setBreakpoint(breakpoint_id: number, expr?: string) {
-        const token = this.get_token();
+        const token = this.getToken();
         const payload = {
             "request": true,
             "type": "breakpoint-id",
@@ -378,7 +378,7 @@ export class HGDBRuntime extends EventEmitter {
             payload["payload"]["condition"] = expr;
         }
         let promise = new Promise<void>((resolve, reject) => {
-            this.add_callback(token, (resp) => {
+            this.addCallback(token, (resp) => {
                 if (resp.status === "error") {
                     reject();
                 } else {
@@ -386,13 +386,13 @@ export class HGDBRuntime extends EventEmitter {
                 }
             });
         });
-        await this.send_payload(payload);
+        await this.sendPayload(payload);
         return promise;
     }
 
     public async getSimulatorStatus(info_command: string = "breakpoints") {
         // used for debugging only. not actually used by the debug adapter
-        const token = this.get_token();
+        const token = this.getToken();
         const payload = {
             "request": true,
             "type": "debugger-info",
@@ -400,7 +400,7 @@ export class HGDBRuntime extends EventEmitter {
             "payload": {"command": info_command}
         };
         let promise = new Promise<any>((resolve, reject) => {
-            this.add_callback(token, (resp) => {
+            this.addCallback(token, (resp) => {
                 if (resp.status === "error") {
                     reject();
                 } else {
@@ -408,32 +408,32 @@ export class HGDBRuntime extends EventEmitter {
                 }
             });
         });
-        await this.send_payload(payload);
+        await this.sendPayload(payload);
         return promise;
     }
 
     // private methods
-    private async send_payload(payload: any) {
+    private async sendPayload(payload: any) {
         const payload_str = JSON.stringify(payload);
         if (this._connection) {
             await this._connection.send(payload_str);
         } else {
             // put it in the queue
-            this._queued_payload.push(payload);
+            this._queuedPayload.push(payload);
         }
     }
 
-    private async send_command(command: string) {
+    private async sendCommand(command: string) {
         const payload = {"request": true, "type": "command", "payload": {"command": command}};
-        await this.send_payload(payload);
+        await this.sendPayload(payload);
     }
 
     private async run(is_step: Boolean) {
         if (this._connected) {
             if (!is_step) {
-                await this.send_command("continue");
+                await this.sendCommand("continue");
             } else {
-                await this.send_command("step-over");
+                await this.sendCommand("step-over");
             }
         } else {
             // inform user that it's not connected to the simulator runtime?
@@ -441,9 +441,9 @@ export class HGDBRuntime extends EventEmitter {
     }
 
     private async sendRemoveBreakpoints(filename: string) {
-        const token = this.get_token();
+        const token = this.getToken();
         return new Promise<void>((resolve, reject) => {
-            this.add_callback(token, (resp) => {
+            this.addCallback(token, (resp) => {
                 if (resp.status === "success") {
                     resolve();
                 } else {
@@ -457,20 +457,20 @@ export class HGDBRuntime extends EventEmitter {
                     "action": "remove"
                 }
             };
-            this.send_payload(payload);
+            this.sendPayload(payload);
         });
     }
 
     private async connectRuntime(file: string) {
         // resolve it to make it absolute path
         if (!path.isAbsolute(file)) {
-            file = path.join(this._workspace_dir, file);
+            file = path.join(this._workspaceDir, file);
         }
 
         // register callback
-        const token = this.get_token();
+        const token = this.getToken();
         let promise = new Promise<void>((resolve, reject) => {
-            this.add_callback(token, async (resp) => {
+            this.addCallback(token, async (resp) => {
                 if (resp.status === "error") {
                     const reason = resp.payload.reason;
                     this.sendEvent("errorMessage", `Failed to connect to a running simulator. Reason: ${reason}`);
@@ -484,16 +484,16 @@ export class HGDBRuntime extends EventEmitter {
             });
         });
 
-        await this.send_connect_message(file, token);
+        await this.sendConnectMessage(file, token);
         return promise;
     }
 
-    private on_breakpoint(payload, is_exception = false) {
-        this._current_local_variables.clear();
-        this._current_generator_variables.clear();
-        this._current_generator_names.clear();
+    private onBreakpoint(payload, is_exception = false) {
+        this._currentLocalVariables.clear();
+        this._currentGeneratorVariables.clear();
+        this._currentGeneratorNames.clear();
         // we will get a list of values
-        this.add_frame_info(payload);
+        this.addFrameInfo(payload);
         // recreate threads
         if (!is_exception) {
             this.fireEventsForBreakPoint();
@@ -505,16 +505,16 @@ export class HGDBRuntime extends EventEmitter {
     /**
      * Get a random token via UUID
      */
-    private get_token(): string {
-        const id = this._token_count++;
+    private getToken(): string {
+        const id = this._tokenCount++;
         return id.toString();
     }
 
-    private add_callback(token: string, callback: Function) {
-        this._token_callbacks.set(token, callback);
+    private addCallback(token: string, callback: Function) {
+        this._tokenCallbacks.set(token, callback);
     }
 
-    private async send_connect_message(db_filename: string, token: string) {
+    private async sendConnectMessage(db_filename: string, token: string) {
         let payload = {
             "request": true, "type": "connection", "payload": {
                 "db_filename": db_filename,
@@ -526,10 +526,10 @@ export class HGDBRuntime extends EventEmitter {
             payload["payload"]["path_mapping"] = {};
             payload["payload"]["path_mapping"][this._srcPath] = this._dstPath;
         }
-        await this.send_payload(payload);
+        await this.sendPayload(payload);
     }
 
-    private async send_bp_location(filename: string, line_num: number, token: string, column_num?: number) {
+    private async sendBpLocation(filename: string, line_num: number, token: string, column_num?: number) {
         const payload = {
             "request": true, "type": "bp-location", "token": token,
             "payload": {"filename": filename, "line_num": line_num}
@@ -537,7 +537,7 @@ export class HGDBRuntime extends EventEmitter {
         if (column_num) {
             payload["payload"]["column_num"] = column_num;
         }
-        await this.send_payload(payload);
+        await this.sendPayload(payload);
     }
 
     /**
