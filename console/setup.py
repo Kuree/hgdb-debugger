@@ -13,7 +13,7 @@ setup(
     author_email='keyi@cs.stanford.edu',
     long_description=long_description,
     long_description_content_type='text/x-rst',
-    scripts=["debugger"],
+    scripts=["hgdb"],
     url="https://github.com/Kuree/hgdb-debugger",
     install_requires=[
         "prompt_toolkit",
