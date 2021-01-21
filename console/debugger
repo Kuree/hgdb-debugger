@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+import sys
+import os
+import argparse
+import asyncio
+from rich.console import Console
+from rich.prompt import Prompt
+from hgdb import HGDBClient, DebugSymbolTable
+import time
+
+
+def get_arguments():
+    parser = argparse.ArgumentParser("hgdb debugger")
+    parser.add_argument("--db", "-i", dest="symbol_table", type=str, required=True, help="Filename to the symbol table")
+    parser.add_argument("--port", "-p", dest="port", type=int, help="Port number for the simulator", default=8888)
+    args = parser.parse_args()
+    return args.symbol_table, args.port
+
+
+def index_filenames(filenames):
+    result = {}
+    conflicted = set()
+    for filename in filenames:
+        result[filename] = filename
+        # check if we can do short hand
+        basename = os.path.basename(filename)
+        if basename in conflicted:
+            continue
+        if basename in result:
+            # detecting conflicts
+            result.pop(basename)
+            conflicted.add(basename)
+            continue
+        result[basename] = filename
+    return result
+
+
+async def get_client(filename, port):
+    uri = "ws://localhost:{0}".format(port)
+    # create a client and try to connect
+    client = HGDBClient(uri, filename)
+    # connect
+    await client.connect()
+    # use single thread mode
+    await client.change_option(single_thread_mode=True)
+    return client
+
+
+async def main_loop(client: HGDBClient, db, console):
+    filename_map = index_filenames(db.get_filenames())
+    # list of commands
+    current_scope = ""
+
+    def check_error(resp):
+        if resp["status"] == "error":
+            console.print(resp["payload"]["reason"])
+            return False
+        return True
+
+    async def print_var(expr):
+        resp = await client.evaluate(current_scope, expr, False)
+        if check_error(resp):
+            console.print(resp["payload"]["result"])
+
+    async def insert_breakpoint(expr):
+        print(expr)
+        tokens = expr.split(":")
+        if len(tokens) < 2 or len(tokens) > 3:
+            console.print("Invalid breakpoint at", expr)
+            return
+        filename = tokens[0]
+        if filename not in filename_map:
+            console.print("Unable to find breakpoint at", expr)
+            return
+        filename = filename_map[filename]
+        if not tokens[1].isdigit():
+            console.print("Invalid breakpoint at", expr)
+            return
+        line_num = int(tokens[1])
+        column_num = 0
+        if len(tokens) == 3:
+            if not tokens[2].isdigit():
+                console.print("Invalid breakpoint at", expr)
+                return
+            column_num = int(tokens[2])
+        resp = await client.set_breakpoint(filename, line_num, column_num, check_error=False)
+        check_error(resp)
+
+    async def continue_(_):
+        await client.continue_()
+        return True
+
+    def parse_breakpoint_info(resp):
+        payload = resp["payload"]
+        filename = payload["filename"]
+        line_num = payload["line_num"]
+        column_num = payload["column_num"]
+        # we are in the single thread mode
+        instance = payload["instances"][0]
+        instance_id = instance["instance_id"]
+        breakpoint_id = instance["breakpoint_id"]
+        return (filename, line_num, column_num), instance_id, breakpoint_id
+
+    def render_breakpoint(bp_info, breakpoint_id):
+        (filename, line_num, column_num) = bp_info
+        if column_num == 0:
+            fn_ln_info = "{0}:{1}".format(filename, line_num)
+        else:
+            fn_ln_info = "{0}:{1}:{2}".format(filename, line_num, column_num)
+        console.print("Breakpoint", breakpoint_id, "at", fn_ln_info)
+        # TODO print a line
+
+    # registers commands
+    commands = {"c": continue_, "continue": continue_, "b": insert_breakpoint, "p": print_var}
+
+    while True:
+        result = console.input("> ")
+        command_tokens = result.split(" ")
+        command = command_tokens[0]
+        if command not in commands:
+            console.print("Invalid command", result)
+            continue
+        command_arg = " ".join(command_tokens[1:]) if len(command_tokens) > 1 else ""
+        command_func = commands[command]
+        should_recv = await command_func(command_arg)
+        if should_recv:
+            info = await client.recv()
+            line_info, i_id, b_id = parse_breakpoint_info(info)
+            current_scope = b_id
+            render_breakpoint(line_info, b_id)
+
+
+def main():
+    filename, port = get_arguments()
+    if not os.path.exists(filename):
+        print("Unable to find", filename, file=sys.stderr)
+        exit(1)
+
+    # load the table locally as well
+    db = DebugSymbolTable(filename)
+    client = asyncio.get_event_loop().run_until_complete(get_client(filename, port))
+
+    # initialize rich console
+    console = Console()
+
+    # loop until finish
+    asyncio.get_event_loop().run_until_complete(main_loop(client, db, console))
+
+
+if __name__ == "__main__":
+    main()
