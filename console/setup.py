@@ -17,7 +17,8 @@ setup(
     url="https://github.com/Kuree/hgdb-debugger",
     install_requires=[
         "prompt_toolkit",
-        "hgdb[client]"
+        "hgdb[client]",
+        "pygments"
     ],
     python_requires=">=3.6"
 )
