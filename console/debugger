@@ -173,6 +173,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
 
     async def exit_(_):
         print("exit")
+        await client.close()
         exit(0)
 
     def parse_breakpoint_info(resp):
@@ -230,7 +231,7 @@ def main():
 
     # load the table locally as well
     db = DebugSymbolTable(filename)
-    client = asyncio.get_event_loop().run_until_complete(get_client(filename, port))
+    client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, port))
 
     # prompt session
     session = PromptSession()
