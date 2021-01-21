@@ -51,6 +51,8 @@ async def get_client(filename, port):
     await client.connect()
     # use single thread mode
     await client.change_option(single_thread_mode=True)
+    payload = await client.get_info("status")
+    print(payload["payload"]["status"], end="")
     return client
 
 
@@ -75,6 +77,8 @@ def print_line(filename, line_num, line, formatter):
 
 
 def get_fn_ln_cn(filename, line_num, column_num, shorten_filename_map):
+    if len(filename) == 0:
+        return ""
     if filename in shorten_filename_map:
         filename = shorten_filename_map[filename]
     if column_num == 0:
@@ -88,6 +92,11 @@ async def main_loop(client: HGDBClient, db, session, formatter):
     filename_map, shortened_map = index_filenames(db.get_filenames())
     # list of commands
     current_scope = ""
+    commands = {}
+    commands_help = {}
+    current_breakpoint_fn = ""
+    current_breakpoint_ln = 0
+    current_breakpoint_cn = 0
 
     def check_error(resp):
         if resp["status"] == "error":
@@ -106,7 +115,6 @@ async def main_loop(client: HGDBClient, db, session, formatter):
             return None
         filename = tokens[0]
         if filename not in filename_map:
-            print("Unable to find breakpoint at", expr)
             return
         filename = filename_map[filename]
         if not tokens[1].isdigit():
@@ -122,7 +130,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
     async def insert_breakpoint(expr):
         r = parse_fn_ln(expr)
         if r is None:
-            print("Invalid breakpoint at", expr)
+            print("Invalid breakpoint", expr)
         else:
             filename, line_num, column_num = r
             resp = await client.set_breakpoint(filename, line_num, column_num, check_error=False)
@@ -171,11 +179,27 @@ async def main_loop(client: HGDBClient, db, session, formatter):
                 for bp in resp["payload"]["breakpoints"]:
                     print("{0:8} {1}".format(bp["id"], get_fn_ln_cn(bp["filename"], bp["line_num"], bp["column_num"],
                                                                     shortened_map)))
+            else:
+                print("Invalid info command", expr)
 
     async def exit_(_):
         print("exit")
         await client.close()
         exit(0)
+
+    async def help_(expr):
+        if len(expr) == 0:
+            # print out the available commands
+            commands_str = " ".join([n for n in commands])
+            print("List of available commands:\033[1m", commands_str, '\033[0m')
+            print('Type "help" followed by a command to see detailed explanation')
+        else:
+            if expr not in commands:
+                print("Invalid command", expr, "for help")
+                return
+            fn = commands[expr]
+            help_str = commands_help[fn]
+            print('\033[1m' + expr + '\033[0m', "--", help_str)
 
     def parse_breakpoint_info(resp):
         payload = resp["payload"]
@@ -200,11 +224,23 @@ async def main_loop(client: HGDBClient, db, session, formatter):
     # registers commands
     commands = {"c": continue_, "continue": continue_, "b": insert_breakpoint, "p": print_var, "l": list_file,
                 "list": list_file, "i": info, "info": info, "d": remove_breakpoint, "delete": remove_breakpoint,
-                "clear": clear_breakpoint, "q": exit_, "exit": exit_, "quit": exit_}
+                "clear": clear_breakpoint, "q": exit_, "exit": exit_, "quit": exit_, "help": help_}
+
+    commands_help = {continue_: "Continues running the simulation until the next breakpoint",
+                     insert_breakpoint: "Puts a breakpoint at particular line",
+                     print_var: "Prints the current value of variable or expressions",
+                     list_file: "Prints lines from a source file",
+                     info: "Shows simulator information",
+                     remove_breakpoint: "Removes breakpoint given the ID",
+                     clear_breakpoint: "Clears breakpoints at particular file",
+                     exit_: "Detach from the simulator",
+                     help_: "Shows help menu"}
 
     while True:
         with patch_stdout():
-            result = await session.prompt_async("(hgdb) ", auto_suggest=AutoSuggestFromHistory())
+            result = await session.prompt_async("(hgdb) ", auto_suggest=AutoSuggestFromHistory(),
+                                                rprompt=get_fn_ln_cn(current_breakpoint_fn, current_breakpoint_ln,
+                                                                     current_breakpoint_cn, shortened_map))
             result = result.strip()
         command_tokens = result.split(" ")
         command = command_tokens[0]
@@ -213,7 +249,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
             continue
         command_arg = " ".join(command_tokens[1:]) if len(command_tokens) > 1 else ""
         command_func = commands[command]
-        should_recv = await command_func(command_arg)
+        should_recv = await command_func(command_arg.strip())
         if should_recv:
             info = await client.recv()
             if info is None:
@@ -222,6 +258,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
             line_info, i_id, b_id = parse_breakpoint_info(info)
             current_scope = str(b_id)
             render_breakpoint(line_info, b_id)
+            current_breakpoint_fn, current_breakpoint_ln, current_breakpoint_cn = line_info
 
 
 def main():
@@ -243,7 +280,7 @@ def main():
     # loop until finish
     try:
         asyncio.get_event_loop().run_until_complete(main_loop(client, db, session, formatter))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print("exit")
 
 
