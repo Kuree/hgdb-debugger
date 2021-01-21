@@ -3,10 +3,12 @@ import sys
 import os
 import argparse
 import asyncio
-from rich.console import Console
-from rich.prompt import Prompt
 from hgdb import HGDBClient, DebugSymbolTable
-import time
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
+import pygments
+import pygments.formatters
+import pygments.lexers
 
 
 def get_arguments():
@@ -32,7 +34,12 @@ def index_filenames(filenames):
             conflicted.add(basename)
             continue
         result[basename] = filename
-    return result
+    shorten = {}
+    for name, value in result.items():
+        if name != value:
+            # it has been shortened
+            shorten[value] = name
+    return result, shorten
 
 
 async def get_client(filename, port):
@@ -46,49 +53,127 @@ async def get_client(filename, port):
     return client
 
 
-async def main_loop(client: HGDBClient, db, console):
-    filename_map = index_filenames(db.get_filenames())
+def read_line(filename, line_num, line_range=0):
+    # notice the +1 line number conversion!
+    if not os.path.exists(filename):
+        return None
+    else:
+        with open(filename) as f:
+            lines = f.readlines()
+        result = []
+        min_line = max(1, line_num - line_range)
+        max_line = min(len(lines), line_num + line_range)
+        for i in range(min_line - 1, max_line):
+            result.append((i, lines[i].rstrip()))
+        return result
+
+
+def print_line(filename, line_num, line, formatter):
+    lexer = pygments.lexers.get_lexer_for_filename(filename)
+    print(line_num + 1, pygments.highlight(line, lexer, formatter), end="")
+
+
+def get_fn_ln_cn(filename, line_num, column_num, shorten_filename_map):
+    if filename in shorten_filename_map:
+        filename = shorten_filename_map[filename]
+    if column_num == 0:
+        fn_ln_info = "{0}:{1}".format(filename, line_num)
+    else:
+        fn_ln_info = "{0}:{1}:{2}".format(filename, line_num, column_num)
+    return fn_ln_info
+
+
+async def main_loop(client: HGDBClient, db, session, formatter):
+    filename_map, shortened_map = index_filenames(db.get_filenames())
     # list of commands
     current_scope = ""
 
     def check_error(resp):
         if resp["status"] == "error":
-            console.print(resp["payload"]["reason"])
+            print(resp["payload"]["reason"])
             return False
         return True
 
     async def print_var(expr):
         resp = await client.evaluate(current_scope, expr, False)
         if check_error(resp):
-            console.print(resp["payload"]["result"])
+            print(resp["payload"]["result"])
 
-    async def insert_breakpoint(expr):
-        print(expr)
+    def parse_fn_ln(expr):
         tokens = expr.split(":")
         if len(tokens) < 2 or len(tokens) > 3:
-            console.print("Invalid breakpoint at", expr)
-            return
+            return None
         filename = tokens[0]
         if filename not in filename_map:
-            console.print("Unable to find breakpoint at", expr)
+            print("Unable to find breakpoint at", expr)
             return
         filename = filename_map[filename]
         if not tokens[1].isdigit():
-            console.print("Invalid breakpoint at", expr)
-            return
+            return None
         line_num = int(tokens[1])
         column_num = 0
         if len(tokens) == 3:
             if not tokens[2].isdigit():
-                console.print("Invalid breakpoint at", expr)
-                return
+                return None
             column_num = int(tokens[2])
-        resp = await client.set_breakpoint(filename, line_num, column_num, check_error=False)
+        return filename, line_num, column_num
+
+    async def insert_breakpoint(expr):
+        r = parse_fn_ln(expr)
+        if r is None:
+            print("Invalid breakpoint at", expr)
+        else:
+            filename, line_num, column_num = r
+            resp = await client.set_breakpoint(filename, line_num, column_num, check_error=False)
+            check_error(resp)
+
+    async def remove_breakpoint(expr):
+        if not expr.isdigit():
+            print("Unable to parse breakpoint id", expr)
+        bp_id = int(expr)
+        resp = await client.remove_breakpoint_id(bp_id, False)
         check_error(resp)
+
+    async def clear_breakpoint(expr):
+        r = parse_fn_ln(expr)
+        if r is None:
+            print("Unable to parse breakpoint", expr)
+            return
+        fn, ln, cn = r
+        await client.remove_breakpoint(fn, ln, cn)
 
     async def continue_(_):
         await client.continue_()
         return True
+
+    async def list_file(expr):
+        r = parse_fn_ln(expr)
+        if r is None:
+            print("Invalid filename at", expr)
+        else:
+            filename, line_num, _ = r
+            # need to read out the filename given these lines
+            lines = read_line(filename, line_num, 5)
+            for line_num, line in lines:
+                print_line(filename, line_num, line, formatter)
+
+    async def info(expr):
+        tokens = expr.split(" ")
+        if len(tokens) != 1:
+            print("Invalid information command", expr)
+            return
+        else:
+            cmd = tokens[0]
+            if cmd == "b" or cmd == "breakpoint":
+                # need to get the current inserted breakpoints
+                resp = await client.get_info("breakpoints")
+                for bp in resp["payload"]["breakpoints"]:
+                    print("{0:8} {1}".format(bp["id"], get_fn_ln_cn(bp["filename"], bp["line_num"], bp["column_num"],
+                                                                    shortened_map)))
+
+    async def exit_(_):
+        print("exit")
+        exit(0)
 
     def parse_breakpoint_info(resp):
         payload = resp["payload"]
@@ -103,30 +188,37 @@ async def main_loop(client: HGDBClient, db, console):
 
     def render_breakpoint(bp_info, breakpoint_id):
         (filename, line_num, column_num) = bp_info
-        if column_num == 0:
-            fn_ln_info = "{0}:{1}".format(filename, line_num)
-        else:
-            fn_ln_info = "{0}:{1}:{2}".format(filename, line_num, column_num)
-        console.print("Breakpoint", breakpoint_id, "at", fn_ln_info)
-        # TODO print a line
+        fn_ln_info = get_fn_ln_cn(filename, line_num, column_num, shortened_map)
+        print("Breakpoint", breakpoint_id, "at", fn_ln_info)
+        line_text = read_line(filename, line_num)
+        if line_text is not None and len(line_text) > 0:
+            line_num, line = line_text[0]
+            print_line(filename, line_num, line, formatter)
 
     # registers commands
-    commands = {"c": continue_, "continue": continue_, "b": insert_breakpoint, "p": print_var}
+    commands = {"c": continue_, "continue": continue_, "b": insert_breakpoint, "p": print_var, "l": list_file,
+                "list": list_file, "i": info, "info": info, "d": remove_breakpoint, "delete": remove_breakpoint,
+                "clear": clear_breakpoint, "q": exit_, "exit": exit_, "quit": exit_}
 
     while True:
-        result = console.input("> ")
+        with patch_stdout():
+            result = await session.prompt_async("(hgdb) ")
+            result = result.strip()
         command_tokens = result.split(" ")
         command = command_tokens[0]
         if command not in commands:
-            console.print("Invalid command", result)
+            print("Invalid command", result)
             continue
         command_arg = " ".join(command_tokens[1:]) if len(command_tokens) > 1 else ""
         command_func = commands[command]
         should_recv = await command_func(command_arg)
         if should_recv:
             info = await client.recv()
+            if info is None:
+                print("Simulator exited")
+                return
             line_info, i_id, b_id = parse_breakpoint_info(info)
-            current_scope = b_id
+            current_scope = str(b_id)
             render_breakpoint(line_info, b_id)
 
 
@@ -140,11 +232,17 @@ def main():
     db = DebugSymbolTable(filename)
     client = asyncio.get_event_loop().run_until_complete(get_client(filename, port))
 
-    # initialize rich console
-    console = Console()
+    # prompt session
+    session = PromptSession()
+
+    # formatter
+    formatter = pygments.formatters.get_formatter_by_name("terminal")
 
     # loop until finish
-    asyncio.get_event_loop().run_until_complete(main_loop(client, db, console))
+    try:
+        asyncio.get_event_loop().run_until_complete(main_loop(client, db, session, formatter))
+    except KeyboardInterrupt:
+        print("exit")
 
 
 if __name__ == "__main__":
