@@ -10,6 +10,7 @@ import pygments
 import pygments.formatters
 import pygments.lexers
 from prompt_toolkit.auto_suggest import AutoSuggest, Suggestion
+from prompt_toolkit.key_binding import KeyBindings
 
 
 def get_arguments():
@@ -266,11 +267,22 @@ async def main_loop(client: HGDBClient, db, session, formatter):
                      exit_: "Detach from the simulator",
                      help_: "Shows help menu"}
 
+    bindings = KeyBindings()
+
+    @bindings.add('tab')
+    def _(event):
+        buffer = event.current_buffer
+        suggestion: Suggestion = buffer.suggestion
+        if suggestion is not None:
+            buffer.text = buffer.text + suggestion.text
+            buffer.cursor_position = len(buffer.text)
+
     while True:
         with patch_stdout():
             result = await session.prompt_async("(hgdb) ", auto_suggest=AutoSuggestFromHistoryPath(filename_map),
                                                 rprompt=get_fn_ln_cn(current_breakpoint_fn, current_breakpoint_ln,
-                                                                     current_breakpoint_cn, shortened_map))
+                                                                     current_breakpoint_cn, shortened_map),
+                                                key_bindings=bindings)
             result = result.strip()
         command_tokens = result.split(" ")
         command = command_tokens[0]
