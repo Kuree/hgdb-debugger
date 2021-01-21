@@ -9,7 +9,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 import pygments
 import pygments.formatters
 import pygments.lexers
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.auto_suggest import AutoSuggest, Suggestion
 
 
 def get_arguments():
@@ -56,13 +56,16 @@ async def get_client(filename, port):
     return client
 
 
-def read_line(filename, line_num, line_range=0):
+def read_line(filename, line_num, file_context_cache, line_range=0):
     # notice the +1 line number conversion!
     if not os.path.exists(filename):
         return None
     else:
-        with open(filename) as f:
-            lines = f.readlines()
+        if filename not in file_context_cache:
+            with open(filename) as f:
+                lines = f.readlines()
+        else:
+            lines = file_context_cache[filename]
         result = []
         min_line = max(1, line_num - line_range)
         max_line = min(len(lines), line_num + line_range)
@@ -88,12 +91,39 @@ def get_fn_ln_cn(filename, line_num, column_num, shorten_filename_map):
     return fn_ln_info
 
 
+class AutoSuggestFromHistoryPath(AutoSuggest):
+    def __init__(self, path):
+        self.path = path
+
+    def get_suggestion(
+            self, buffer, document):
+        history = buffer.history
+        text = document.text.rsplit("\n", 1)[-1]
+        if text.strip():
+            # match history first
+            for string in reversed(list(history.get_strings())):
+                for line in reversed(string.splitlines()):
+                    if line.startswith(text):
+                        return Suggestion(line[len(text):])
+            tokens = text.split(" ")
+            command = tokens[0]
+            if len(tokens) > 1 and command in {"list", "l", "b", "breakpoint"}:
+                command = command + " "
+                path = text[text.index(command) + len(command):]
+                if path:
+                    for filename in self.path:
+                        if filename.startswith(path):
+                            return Suggestion(filename[len(path):])
+        return None
+
+
 async def main_loop(client: HGDBClient, db, session, formatter):
     filename_map, shortened_map = index_filenames(db.get_filenames())
     # list of commands
     current_scope = ""
     commands = {}
     commands_help = {}
+    file_context_cache = {}
     current_breakpoint_fn = ""
     current_breakpoint_ln = 0
     current_breakpoint_cn = 0
@@ -162,7 +192,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
         else:
             filename, line_num, _ = r
             # need to read out the filename given these lines
-            lines = read_line(filename, line_num, 5)
+            lines = read_line(filename, line_num, file_context_cache, 5)
             for line_num, line in lines:
                 print_line(filename, line_num, line, formatter)
 
@@ -216,7 +246,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
         (filename, line_num, column_num) = bp_info
         fn_ln_info = get_fn_ln_cn(filename, line_num, column_num, shortened_map)
         print("Breakpoint", breakpoint_id, "at", fn_ln_info)
-        line_text = read_line(filename, line_num)
+        line_text = read_line(filename, line_num, file_context_cache)
         if line_text is not None and len(line_text) > 0:
             line_num, line = line_text[0]
             print_line(filename, line_num, line, formatter)
@@ -238,7 +268,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
 
     while True:
         with patch_stdout():
-            result = await session.prompt_async("(hgdb) ", auto_suggest=AutoSuggestFromHistory(),
+            result = await session.prompt_async("(hgdb) ", auto_suggest=AutoSuggestFromHistoryPath(filename_map),
                                                 rprompt=get_fn_ln_cn(current_breakpoint_fn, current_breakpoint_ln,
                                                                      current_breakpoint_cn, shortened_map))
             result = result.strip()
