@@ -40,3 +40,9 @@ jobs:
         cd console
         pip install pytest
         pytest tests/
+    - name: Upload artifact 🛖
+      uses: actions/upload-artifact@v2
+      with:
+        name: Python Wheel
+        path: console/dist/
+

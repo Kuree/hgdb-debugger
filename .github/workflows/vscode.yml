@@ -33,3 +33,13 @@ jobs:
         cd vscode
         npm run compile
         npm run test
+    - name: build vsix package
+      shell: bash
+      run: |
+        sudo npm install -g vsce
+        cd vscode && vsce package
+    - name: Upload artifact 🛖
+      uses: actions/upload-artifact@v2
+      with:
+        name: vsix
+        path: vscode/*.vsix
