@@ -24,9 +24,14 @@ jobs:
       env:
         CC: gcc-10
         CXX: g++-10
+    - name: Setup Python environment 🐍
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.7
     - name: Build and install hgdb-debugger wheel 🎡
       shell: bash
       run: |
+        pip install wheel
         cd console && python3 setup.py bdist_wheel
         pip install dist/*
     - name: Run tests ⚙️
