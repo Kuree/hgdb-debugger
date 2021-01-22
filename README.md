@@ -17,6 +17,8 @@ Supported Features:
 - Multiple instances view
 - Complex data type rendering
 
+To use the debugger, simply press <key>F5</key> and choose `HGDB debug`. Currently it is registered under `*.py` so only Python files can see this options. Feel free to send a PR if you want it supports more languages.
+
 Below is a quick overview of its interface
 
 ![Gif of hgdb-vscode](https://rawcdn.githack.com/Kuree/kratos-vscode/d0dc4e40b186297da9a419298459f4dbc2a13224/images/demo.gif)
@@ -44,7 +46,7 @@ Road map:
 - Currently it sets the hgdb runtime to single-thread mode to avoid showing multiple instances. This will be resolved once there is a cleaner way to show multiple instances
 - Limited high-level data type reconstruction. Again, will be added once there is a better way to render such stuff in the console.
 
-Here is a rendered `asciinema`:
+Here is a rendered `asciinema` of the hgdb console debugger when debugging simulation with Xcelium:
 
 
 ![SVG of hgdb-console](https://rawcdn.githack.com/Kuree/files/29a6a3c427b46755be29cb513388112490c89ba5/images/hgdb-console.svg)
