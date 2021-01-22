@@ -3,8 +3,9 @@ import os
 from pathlib import Path
 
 
-long_description = ""
-
+current_directory = os.path.abspath(os.path.dirname(__file__))
+with open(os.path.join(current_directory, 'README.rst')) as f:
+    long_description = f.read()
 
 setup(
     name='hgdb-debugger',

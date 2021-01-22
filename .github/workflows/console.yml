@@ -1,4 +1,4 @@
-name: Test VS Code
+name: Test Console
 
 on: [push, pull_request]
 
@@ -24,12 +24,14 @@ jobs:
       env:
         CC: gcc-10
         CXX: g++-10
-    - name: Install npm modules 🔧
+    - name: Build and install hgdb-debugger wheel 🎡
       shell: bash
-      run: cd vscode && npm install
+      run: |
+        cd console && python3 setup.py bdist_wheel
+        pip install dist/*
     - name: Run tests ⚙️
       shell: bash
       run: |
-        cd vscode
-        npm run compile
-        npm run test
+        cd console
+        pip install pytest
+        pytest tests/

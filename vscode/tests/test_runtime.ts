@@ -19,7 +19,8 @@ function get_random_port() {
 
 
 function start_mock_server(port, extra_flags?: Array<string>) {
-    const root = path.dirname(path.dirname(__filename));
+    // the root is the the very top of the repo, which is shared by all debuggers for testing
+    const root = path.dirname(path.dirname(path.dirname(__filename)));
     const build_dir = path.join(root, "build");
     const exe = path.join(build_dir, "tests", "test_debug_server");
     if (!extra_flags) {
