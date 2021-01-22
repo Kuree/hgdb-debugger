@@ -563,7 +563,9 @@ export class HGDBRuntime extends EventEmitter {
      */
     private getToken(): string {
         const id = this._tokenCount++;
-        return id.toString();
+        // all our tokens has vscode prefix
+        // this is to avoid conflicts from other connected devices
+        return "vscode-" + id.toString();
     }
 
     private addCallback(token: string, callback: Function) {
