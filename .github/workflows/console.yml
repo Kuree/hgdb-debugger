@@ -45,4 +45,11 @@ jobs:
       with:
         name: Python Wheel
         path: console/dist/
-
+    - name: Publish distribution 📦 to PyPI
+      if: startsWith(github.ref, 'refs/tags')
+      uses: pypa/gh-action-pypi-publish@master
+      with:
+        user: keyi
+        password: ${{ secrets.PYPI_PASSWORD }}
+        skip_existing: true
+        packages_dir: console/dist/

@@ -97,6 +97,7 @@
   },
   "scripts": {
     "vscode:prepublish": "tsc -p ./src",
+    "deploy": "vsce publish --yarn",
     "compile": "tsc -p ./src",
     "watch": "tsc -watch -p ./",
     "test": "mocha tests/**/*.ts --require ts-node/register --recursive --exit"
