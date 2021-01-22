@@ -4,6 +4,7 @@
   "description": "Debugger for HGDB Framework",
   "publisher": "keyiz",
   "version": "0.0.1",
+  "license": "BSD-2-Clause",
   "engines": {
     "vscode": "^1.33.0"
   },

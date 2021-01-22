@@ -43,3 +43,5 @@ yarn.lock
 # output folder
 out/
 
+# vsc extension
+*.vsix
