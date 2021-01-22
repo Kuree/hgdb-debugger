@@ -46,6 +46,8 @@ jobs:
     - name: Publish extension 📦 to VS code
       if: startsWith(github.ref, 'refs/tags')
       shell: bash
-      run: npm run deploy
+      run: |
+        cd vscode
+        npm run deploy
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
