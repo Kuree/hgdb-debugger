@@ -362,7 +362,7 @@ export class HGDBRuntime extends EventEmitter {
             for (let i = 0; i < num_frames; i++) {
                 frames.push({
                     index: HGDBRuntime.getFrameID(instance_id, i),
-                    name: `Scope ${i}`,
+                    name: `Instance ID ${instance_id}`,
                     file: filename,
                     line: line_num
                 });
