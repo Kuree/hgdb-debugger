@@ -20,6 +20,7 @@ export class HGDBRuntime extends EventEmitter {
 
     private _currentLocalVariables = new Map<number, Array<Map<string, string>>>();
     private _currentGeneratorNames = new Map<number, string>();
+    private _currentBreakpointIDs = new Map<string, number>();
     private _currentGeneratorVariables = new Map<number, Array<Map<string, string>>>();
     private _currentTime = 0;
 
@@ -38,6 +39,9 @@ export class HGDBRuntime extends EventEmitter {
 
     private _srcPath: string = "";
     private _dstPath: string = "";
+
+    // scope for repl
+    private _currentScope: string = "";
 
     // token id
     private _tokenCount: number = 0;
@@ -193,6 +197,7 @@ export class HGDBRuntime extends EventEmitter {
             const generator: Object = entry["generator"];
             const instance_id = entry["instance_id"];
             const instance_name = entry["instance_name"];
+            const breakpoint_id = entry["breakpoint_id"];
 
             // convert them into the format and store them
             const local_variables_raw = new Map<string, string>(Object.entries(local));
@@ -216,6 +221,9 @@ export class HGDBRuntime extends EventEmitter {
             }
             // get instance name
             this._currentGeneratorNames.set(instance_id, instance_name);
+            // set up the mapping between instance name and breakpoint id
+            // used for REPL
+            this._currentBreakpointIDs.set(instance_name, breakpoint_id);
         }
 
         // set time
@@ -412,6 +420,31 @@ export class HGDBRuntime extends EventEmitter {
         return promise;
     }
 
+    public async handleREPL(expression: string) {
+        const tokens = expression.split(" ");
+        if (tokens[0] === "scope") {
+            if (tokens.length !== 2) {
+                return "Invalid set-scope command: " + expression;
+            }
+            const scope = tokens[1];
+            // search locally to see if we have any thing
+            const breakpoint_id = this._currentBreakpointIDs.get(scope);
+            if (breakpoint_id) {
+                this._currentScope = breakpoint_id.toString();
+            } else {
+                // best effort
+                this._currentScope = scope;
+            }
+            return "";
+        } else if (tokens[0] === "clear") {
+            this._currentScope = "";
+            return "";
+        } else {
+            // ask the server about the values
+            return await this.sendEvaluation(this._currentScope, expression);
+        }
+    }
+
     // private methods
     private async sendPayload(payload: any) {
         const payload_str = JSON.stringify(payload);
@@ -426,6 +459,28 @@ export class HGDBRuntime extends EventEmitter {
     private async sendCommand(command: string) {
         const payload = {"request": true, "type": "command", "payload": {"command": command}};
         await this.sendPayload(payload);
+    }
+
+    private async sendEvaluation(scope: string, expression: string) {
+        const token = this.getToken();
+        const payload = {
+            "request": true,
+            "type": "evaluation",
+            "token": token,
+            "payload": {"scope": scope, "expression": expression}
+        };
+
+        return new Promise<string>((async (resolve) => {
+            this.addCallback(token, async (resp) => {
+                if (resp.status === "error") {
+                    const reason = resp.payload.reason;
+                    resolve(reason);
+                } else {
+                    resolve(resp.payload.result);
+                }
+            });
+            await this.sendPayload(payload);
+        }));
     }
 
     private async run(is_step: Boolean) {
@@ -492,6 +547,7 @@ export class HGDBRuntime extends EventEmitter {
         this._currentLocalVariables.clear();
         this._currentGeneratorVariables.clear();
         this._currentGeneratorNames.clear();
+        this._currentBreakpointIDs.clear();
         // we will get a list of values
         this.addFrameInfo(payload);
         // recreate threads

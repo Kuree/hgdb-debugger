@@ -492,7 +492,20 @@ export class HGDBDebugSession extends LoggingDebugSession {
         }
     }
 
-    protected evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments): void {
+    protected async evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments) {
+        // REPL loop
+        if (args.context === 'repl') {
+            const expression = args.expression;
+            const result = await this._runtime.handleREPL(expression);
+            if (result.length > 0) {
+                response.body = {
+                    result: result,
+                    variablesReference: 0
+                };
+                this.sendResponse(response);
+            }
+
+        }
     }
 
     protected async continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments) {

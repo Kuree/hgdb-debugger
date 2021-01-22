@@ -144,4 +144,23 @@ describe('runtime', function () {
         }
         p.kill();
     });
+
+    it("test evaluate", async () => {
+        const port = get_random_port();
+        let p = start_mock_server(port);
+
+        let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
+        runtime.setRuntimePort(port);
+
+        await sleep(100);
+        await runtime.start("ignore");
+        console.log("here");
+        let result = await runtime.handleREPL("1 + 41");
+        expect(result).eq("42");
+        // set scope
+        await runtime.handleREPL("scope mod");
+        result = await runtime.handleREPL("1 + a");
+        expect(result).eq("2");
+        p.kill();
+    });
 });
