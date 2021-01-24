@@ -3,6 +3,7 @@ import sys
 import os
 import argparse
 import asyncio
+import pprint
 from hgdb import HGDBClient, DebugSymbolTable
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -120,6 +121,63 @@ class AutoSuggestFromHistoryPath(AutoSuggest):
         return None
 
 
+def fix_local_str_num(target):
+    if not isinstance(target, dict):
+        if isinstance(target, str) and target.isdigit():
+            return int(target)
+        else:
+            return target
+    # only if all the keys are there and are numerical
+    keys = set(target.keys())
+    for i in range(len(target)):
+        if str(i) not in keys:
+            # skip this layer
+            for key, value in target.items():
+                target[key] = fix_local_str_num(value)
+            return target
+    result = [None for _ in range(len(target))]
+    for key, value in target.items():
+        result[int(key)] = fix_local_str_num(value)
+    return result
+
+
+def parse_local(local_vars):
+    result = {}
+    # notice that everything is flat from the debug server
+    for name, value in local_vars.items():
+        # replace [] with .
+        name = name.replace("[", ".").replace("]", "")
+        tokens = name.split(".")
+        if len(tokens) == 1:
+            result[name] = value
+            continue
+        # build up the hierarchy
+        target = result
+        for i in range(len(tokens) - 1):
+            if tokens[i] not in target:
+                target[tokens[i]] = {}
+            target = target[tokens[i]]
+        target[tokens[-1]] = value if not value.isdigit() else int(value)
+
+    # second pass recursively change the map into array
+    result = fix_local_str_num(result)
+    return result
+
+
+def locate_local_vars(expr, local_vars):
+    if len(expr.split()) > 1:
+        return None
+    name = expr.replace("[", ".").replace("]", "")
+    tokens = name.split(".")
+    target = local_vars
+    for var_name in tokens:
+        key = int(var_name) if var_name.isdigit() else var_name
+        if key not in target:
+            return None
+        target = target[key]
+    return target
+
+
 async def main_loop(client: HGDBClient, db, session, formatter):
     filename_map, shortened_map = index_filenames(db.get_filenames())
     # list of commands
@@ -130,6 +188,8 @@ async def main_loop(client: HGDBClient, db, session, formatter):
     current_breakpoint_fn = ""
     current_breakpoint_ln = 0
     current_breakpoint_cn = 0
+    # for local vars
+    local_vars = {}
 
     def check_error(resp):
         if resp["status"] == "error":
@@ -138,6 +198,10 @@ async def main_loop(client: HGDBClient, db, session, formatter):
         return True
 
     async def print_var(expr):
+        target = locate_local_vars(expr, local_vars)
+        if target is not None:
+            pprint.pprint(target)
+            return
         resp = await client.evaluate(current_scope, expr, False)
         if check_error(resp):
             print(resp["payload"]["result"])
@@ -243,7 +307,8 @@ async def main_loop(client: HGDBClient, db, session, formatter):
         instance = payload["instances"][0]
         instance_id = instance["instance_id"]
         breakpoint_id = instance["breakpoint_id"]
-        return (filename, line_num, column_num), instance_id, breakpoint_id
+        local_vars_ = parse_local(instance["local"])
+        return (filename, line_num, column_num), instance_id, breakpoint_id, local_vars_
 
     def render_breakpoint(bp_info, breakpoint_id):
         (filename, line_num, column_num) = bp_info
@@ -269,6 +334,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
                      exit_: "Detach from the simulator",
                      help_: "Shows help menu"}
 
+    # for tab auto-complete
     bindings = KeyBindings()
 
     @bindings.add('tab')
@@ -311,7 +377,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
                 if info["type"] == "breakpoint":
                     # don't care about other stuff since it's handled properly via recv()
                     break
-            line_info, i_id, b_id = parse_breakpoint_info(info)
+            line_info, i_id, b_id, local_vars = parse_breakpoint_info(info)
             current_scope = str(b_id)
             render_breakpoint(line_info, b_id)
             current_breakpoint_fn, current_breakpoint_ln, current_breakpoint_cn = line_info
