@@ -81,5 +81,24 @@ def test_repl():
         p.kill()
 
 
+def test_step_over():
+    port = find_free_port()
+    with tempfile.TemporaryDirectory() as temp:
+        db_filename = os.path.join(temp, "debug.db")
+        create_db(db_filename)
+        # start the server
+        s = start_server(port, "test_debug_server")
+        # run the debugger
+        p = start_program(db_filename, port)
+        # continue
+        out = p.communicate(input=b"s\ns\ns\n")[0]
+        out = out.decode("ascii")
+        assert "Breakpoint 2 at test.py:1" in out
+        assert "Breakpoint 7 at test.py:1" in out
+        assert "Breakpoint 0 at test.py:2" in out
+        s.kill()
+        p.kill()
+
+
 if __name__ == "__main__":
-    test_repl()
+    test_step_over()

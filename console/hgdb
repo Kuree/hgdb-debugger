@@ -252,6 +252,10 @@ async def main_loop(client: HGDBClient, db, session, formatter):
         await client.continue_()
         return True
 
+    async def step_over(_):
+        await client.step_over()
+        return True
+
     async def list_file(expr):
         r = parse_fn_ln(expr)
         if r is None:
@@ -320,11 +324,13 @@ async def main_loop(client: HGDBClient, db, session, formatter):
             print_line(filename, line_num, line, formatter)
 
     # registers commands
-    commands = {"c": continue_, "continue": continue_, "b": insert_breakpoint, "p": print_var, "l": list_file,
-                "list": list_file, "i": info, "info": info, "d": remove_breakpoint, "delete": remove_breakpoint,
-                "clear": clear_breakpoint, "q": exit_, "exit": exit_, "quit": exit_, "help": help_}
+    commands = {"c": continue_, "continue": continue_, "s": step_over, "step": step_over, "b": insert_breakpoint,
+                "p": print_var, "l": list_file, "list": list_file, "i": info, "info": info, "d": remove_breakpoint,
+                "delete": remove_breakpoint,  "clear": clear_breakpoint, "q": exit_, "exit": exit_, "quit": exit_,
+                "help": help_}
 
     commands_help = {continue_: "Continues running the simulation until the next breakpoint",
+                     step_over: "Continue running the simulation until it reaches different source line",
                      insert_breakpoint: "Puts a breakpoint at particular line",
                      print_var: "Prints the current value of variable or expressions",
                      list_file: "Prints lines from a source file",
