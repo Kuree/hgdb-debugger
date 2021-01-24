@@ -488,7 +488,7 @@ export class HGDBRuntime extends EventEmitter {
             if (!is_step) {
                 await this.sendCommand("continue");
             } else {
-                await this.sendCommand("step-over");
+                await this.sendCommand("step_over");
             }
         } else {
             // inform user that it's not connected to the simulator runtime?

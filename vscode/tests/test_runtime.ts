@@ -145,6 +145,35 @@ describe('runtime', function () {
         p.kill();
     });
 
+    it("test step over", async () => {
+        const port = get_random_port();
+        let p = start_mock_server(port);
+
+        let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
+        runtime.setRuntimePort(port);
+
+        await set_breakpoint(runtime, 0);
+        await runtime.step();
+
+        // wait a tiny bit for the server to send breakpoint hit
+        await sleep(100);
+        // current scope should be set up properly
+        let instance_id = 1;
+        let locals = runtime.getCurrentLocalVariables();
+        assert(locals.has(instance_id));
+
+        // next step
+        await runtime.step();
+        // wait a tiny bit for the server to send breakpoint hit
+        await sleep(100);
+        locals = runtime.getCurrentLocalVariables();
+        instance_id = 2;
+        locals = runtime.getCurrentLocalVariables();
+        assert(locals.has(instance_id));
+
+        p.kill();
+    });
+
     it("test evaluate", async () => {
         const port = get_random_port();
         let p = start_mock_server(port);
@@ -154,7 +183,6 @@ describe('runtime', function () {
 
         await sleep(100);
         await runtime.start("ignore");
-        console.log("here");
         let result = await runtime.handleREPL("1 + 41");
         expect(result).eq("42");
         // set scope
