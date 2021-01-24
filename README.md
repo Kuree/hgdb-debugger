@@ -17,6 +17,9 @@ Supported Features:
 - Multiple instances view
 - Complex data type rendering
 
+Road map:
+- Variable watch. Variables that have RTL correspondence should be able to added to the watch panel to help debugging.
+
 To use the debugger, simply press <key>F5</key> and choose `HGDB debug`. Currently it is registered under `*.py` so only Python files can see this options. Feel free to send a PR if you want it supports more languages.
 
 Below is a quick overview of its interface
@@ -41,10 +44,10 @@ Supported Features:
 - Set/remove breakpoints
 - REPL!
 - Auto complete and suggestion
+- Pretty print on complex data type
 
 Road map:
 - Currently it sets the hgdb runtime to single-thread mode to avoid showing multiple instances. This will be resolved once there is a cleaner way to show multiple instances
-- Limited high-level data type reconstruction. Again, will be added once there is a better way to render such stuff in the console.
 
 Here is a rendered `asciinema` of the hgdb console debugger when debugging simulation with Xcelium:
 
