@@ -426,23 +426,22 @@ export class HGDBRuntime extends EventEmitter {
             if (tokens.length !== 2) {
                 return "Invalid set-scope command: " + expression;
             }
-            const scope = tokens[1];
-            // search locally to see if we have any thing
-            const breakpoint_id = this._currentBreakpointIDs.get(scope);
-            if (breakpoint_id) {
-                this._currentScope = breakpoint_id.toString();
-            } else {
-                // best effort
-                this._currentScope = scope;
-            }
+            this._currentScope = tokens[1];
             return "";
         } else if (tokens[0] === "clear") {
             this._currentScope = "";
             return "";
         } else {
             // ask the server about the values
-            return await this.sendEvaluation(this._currentScope, expression);
+            // we only allow evaluation inside the scope of an instance, not the current breakpoint
+            // since we can have multiple frames at the same, and VS code won't notify us which one
+            // is active
+            return await this.sendEvaluation(this._currentScope, expression, false);
         }
+    }
+
+    public async evaluateInstanceScope(expression: string, instance_id: number) {
+        return await this.sendEvaluation(instance_id.toString(), expression, false);
     }
 
     // private methods
@@ -461,13 +460,13 @@ export class HGDBRuntime extends EventEmitter {
         await this.sendPayload(payload);
     }
 
-    private async sendEvaluation(scope: string, expression: string) {
+    private async sendEvaluation(scope: string, expression: string, is_context: boolean) {
         const token = this.getToken();
         const payload = {
             "request": true,
             "type": "evaluation",
             "token": token,
-            "payload": {"scope": scope, "expression": expression}
+            "payload": {"scope": scope, "expression": expression, "is_context": is_context}
         };
 
         return new Promise<string>((async (resolve) => {

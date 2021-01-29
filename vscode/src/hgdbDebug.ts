@@ -500,11 +500,30 @@ export class HGDBDebugSession extends LoggingDebugSession {
             if (result.length > 0) {
                 response.body = {
                     result: result,
-                    variablesReference: 0
+                    variablesReference: 0,
                 };
+                response.success = true;
                 this.sendResponse(response);
             }
-
+        } else if (args.context === 'watch') {
+            // we use frame id to figure out which instance to query
+            const frame_id = args.frameId;
+            if (frame_id !== undefined) {
+                const instance_id = HGDBRuntime.getInstanceFrameID(frame_id)[0];
+                const result = await this._runtime.evaluateInstanceScope(args.expression, instance_id);
+                if (result) {
+                    response.body = {
+                        result: result,
+                        variablesReference: 0,
+                    };
+                    response.success = true;
+                    this.sendResponse(response);
+                    return;
+                }
+            }
+            response.success = false;
+            response.body.result = "Unable to evaluate";
+            this.sendResponse(response);
         }
     }
 
