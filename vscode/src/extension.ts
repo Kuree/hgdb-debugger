@@ -1,8 +1,8 @@
 'use strict';
 
 import * as vscode from 'vscode';
-import { WorkspaceFolder, DebugConfiguration, ProviderResult, CancellationToken } from 'vscode';
-import { HGDBDebugSession } from './hgdbDebug';
+import {WorkspaceFolder, DebugConfiguration, ProviderResult, CancellationToken} from 'vscode';
+import {HGDBDebugSession} from './hgdbDebug';
 import * as Net from 'net';
 
 
@@ -67,8 +67,12 @@ class HGDBConfigurationProvider implements vscode.DebugConfigurationProvider {
 
         if (!config.program) {
             // try to get it again
-            await vscode.window.showInputBox({ placeHolder: "Debug database filename", value: "debug.db" }).then((value) => {
-                if (value != undefined) {
+            await vscode.window.showInputBox({
+                placeHolder: "Debug database filename",
+                prompt: "Debug database filename",
+                value: "debug.db"
+            }).then((value) => {
+                if (value !== undefined) {
                     config.program = value;
                 }
             });
@@ -76,10 +80,28 @@ class HGDBConfigurationProvider implements vscode.DebugConfigurationProvider {
                 vscode.window.showErrorMessage("Program name cannot be empty!");
                 return undefined;
             }
+            await vscode.window.showInputBox({
+                placeHolder: "HGDB runtime port number",
+                value: "8888",
+                prompt: "HGDB runtime port number"
+            }).then((value) => {
+                if (value !== undefined) {
+                    if (HGDBConfigurationProvider.isNormalInteger(value)) {
+                        config.runtimePort = Number(value);
+                    } else {
+                        vscode.window.showWarningMessage(`${value} is not a valid port number. Using default instead`);
+                    }
+                }
+            });
 
         }
 
         return config;
+    }
+
+    private static isNormalInteger(str: string) {
+        const n = Math.floor(Number(str));
+        return n !== Infinity && String(n) === str && n >= 0;
     }
 }
 
