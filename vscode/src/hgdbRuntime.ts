@@ -57,7 +57,7 @@ export class HGDBRuntime extends EventEmitter {
         return this._currentFilename;
     }
 
-    public currentNum() {
+    public currentLineNum() {
         return this._currentLineNum;
     }
 
@@ -244,6 +244,14 @@ export class HGDBRuntime extends EventEmitter {
         await this.run(true);
     }
 
+    public async stepBack() {
+        if (this._connected) {
+            await this.sendCommand("step_back");
+        } else {
+            // inform user that it's not connected to the simulator runtime?
+        }
+    }
+
     /*
      * Verify breakpoint in file with given line.
      */
@@ -358,7 +366,7 @@ export class HGDBRuntime extends EventEmitter {
         } else {
             const num_frames = frames_infos.length;
             const filename = this.currentFilename();
-            const line_num = this.currentNum();
+            const line_num = this.currentLineNum();
             for (let i = 0; i < num_frames; i++) {
                 frames.push({
                     index: HGDBRuntime.getFrameID(instance_id, i),

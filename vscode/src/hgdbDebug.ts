@@ -132,9 +132,6 @@ export class HGDBDebugSession extends LoggingDebugSession {
         // we support conditional breakpoints
         response.body.supportsConditionalBreakpoints = true;
 
-        // make VS Code to show a 'step back' button
-        response.body.supportsStepBack = false;
-
         response.body.supportsStepInTargetsRequest = false;
 
         // make VS Code to support data breakpoints
@@ -152,6 +149,9 @@ export class HGDBDebugSession extends LoggingDebugSession {
 
         // support terminate request
         response.body.supportsTerminateRequest = true;
+
+        // support reverse request
+        response.body.supportsStepBack = true;
 
         this.sendResponse(response);
 
@@ -545,6 +545,18 @@ export class HGDBDebugSession extends LoggingDebugSession {
 
     protected async terminateRequest(response: DebugProtocol.TerminateResponse, args: DebugProtocol.TerminateArguments, request?: DebugProtocol.Request) {
         await this._runtime.stop();
+        this.sendResponse(response);
+    }
+
+    protected async stepBackRequest(response: DebugProtocol.StepBackResponse, args: DebugProtocol.StepBackArguments, request?: DebugProtocol.Request) {
+        await this._runtime.stepBack();
+        this.sendResponse(response);
+    }
+
+    protected async reverseContinueRequest(response: DebugProtocol.ReverseContinueResponse, args: DebugProtocol.ReverseContinueArguments, request?: DebugProtocol.Request) {
+        // for now we use step back
+        vscode.window.showWarningMessage("Reverse Continue not supported. Using step back for now");
+        await this._runtime.stepBack();
         this.sendResponse(response);
     }
 

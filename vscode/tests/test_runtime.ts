@@ -191,4 +191,30 @@ describe('runtime', function () {
         expect(result).eq("2");
         p.kill();
     });
+
+
+    it("test step back", async () => {
+        const port = get_random_port();
+        let p = start_mock_server(port);
+
+        let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
+        runtime.setRuntimePort(port);
+
+        await sleep(100);
+        await runtime.start("ignore");
+
+        await sleep(100);
+        await runtime.setBreakpoint(3);
+        await runtime.continue();
+        await sleep(200);
+        const ln1 = runtime.currentLineNum();
+        expect(ln1).eq(5);
+        await runtime.stepBack();
+        await sleep(200);
+        const ln2 = runtime.currentLineNum();
+        expect(ln2).eq(2);
+
+        p.kill();
+    });
+
 });
