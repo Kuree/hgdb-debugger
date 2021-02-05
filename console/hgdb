@@ -202,7 +202,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
         if target is not None:
             pprint.pprint(target)
             return
-        resp = await client.evaluate(current_scope, expr, False)
+        resp = await client.evaluate(current_scope, expr, is_context=True, check_error=False)
         if check_error(resp):
             print(resp["payload"]["result"])
 
