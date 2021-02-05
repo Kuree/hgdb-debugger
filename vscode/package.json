@@ -23,6 +23,9 @@
     "breakpoints": [
       {
         "language": "python"
+      },
+      {
+        "language": "scala"
       }
     ],
     "debuggers": [
