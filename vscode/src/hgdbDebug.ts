@@ -132,6 +132,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         // we support conditional breakpoints
         response.body.supportsConditionalBreakpoints = true;
 
+        // no step in support
         response.body.supportsStepInTargetsRequest = false;
 
         // make VS Code to support data breakpoints
@@ -152,6 +153,9 @@ export class HGDBDebugSession extends LoggingDebugSession {
 
         // support reverse request
         response.body.supportsStepBack = true;
+
+        // support set value
+        response.body.supportsSetVariable = true;
 
         this.sendResponse(response);
 
@@ -558,6 +562,25 @@ export class HGDBDebugSession extends LoggingDebugSession {
         vscode.window.showWarningMessage("Reverse Continue not supported. Using step back for now");
         await this._runtime.stepBack();
         this.sendResponse(response);
+    }
+
+    protected async setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments, request?: DebugProtocol.Request) {
+        const ref = args.variablesReference;
+        const handle = this._variableHandles.get(ref);
+        // compute based on the handle str
+        const raw_tokens = handle.split('-').filter(n => n);
+        const id: string = raw_tokens[0];
+        const instance_id: number = parseInt(raw_tokens[1]);
+        const int_value: number = parseInt(args.value);
+        let is_local = false;
+        if (id === "local") {
+            // this is local id
+            is_local = true;
+        }
+        const res = await this._runtime.setValue(args.name, int_value, instance_id, is_local);
+        if (res) {
+            this.sendResponse(response);
+        }
     }
 
     //---- helpers

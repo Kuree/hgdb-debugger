@@ -20,7 +20,7 @@ export class HGDBRuntime extends EventEmitter {
 
     private _currentLocalVariables = new Map<number, Array<Map<string, string>>>();
     private _currentGeneratorNames = new Map<number, string>();
-    private _currentBreakpointIDs = new Map<string, number>();
+    private _currentBreakpointIDs = new Map<number, number>();
     private _currentGeneratorVariables = new Map<number, Array<Map<string, string>>>();
     private _currentTime = 0;
 
@@ -223,7 +223,7 @@ export class HGDBRuntime extends EventEmitter {
             this._currentGeneratorNames.set(instance_id, instance_name);
             // set up the mapping between instance name and breakpoint id
             // used for REPL
-            this._currentBreakpointIDs.set(instance_name, breakpoint_id);
+            this._currentBreakpointIDs.set(instance_id, breakpoint_id);
         }
 
         // set time
@@ -450,6 +450,36 @@ export class HGDBRuntime extends EventEmitter {
 
     public async evaluateInstanceScope(expression: string, instance_id: number) {
         return await this.sendEvaluation(instance_id.toString(), expression, false);
+    }
+
+    public async setValue(var_name: string, value: number, id: number, is_local: boolean) {
+        const token = this.getToken();
+        const payload = {
+            "request": true,
+            "type": "set-value",
+            "token": token,
+            "payload": {"var_name": var_name, "value": value}
+        };
+        if (is_local) {
+            const breakpoint_id = this._currentBreakpointIDs.get(id);
+            if (breakpoint_id) {
+                payload["payload"]["breakpoint_id"] = breakpoint_id;
+            }
+        } else {
+            payload["payload"]["instance_id"] = id;
+        }
+
+        let promise = new Promise<boolean>((resolve, reject) => {
+            this.addCallback(token, (resp) => {
+                if (resp.status === "error") {
+                    reject(false);
+                } else {
+                    resolve(true);
+                }
+            });
+        });
+        await this.sendPayload(payload);
+        return promise;
     }
 
     // private methods
