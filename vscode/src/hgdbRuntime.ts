@@ -482,6 +482,10 @@ export class HGDBRuntime extends EventEmitter {
         return promise;
     }
 
+    public async reverseContinue() {
+        await this.sendCommand("reverse_continue");
+    }
+
     // private methods
     private async sendPayload(payload: any) {
         const payload_str = JSON.stringify(payload);

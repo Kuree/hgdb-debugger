@@ -572,9 +572,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
     }
 
     protected async reverseContinueRequest(response: DebugProtocol.ReverseContinueResponse, args: DebugProtocol.ReverseContinueArguments, request?: DebugProtocol.Request) {
-        // for now we use step back
-        vscode.window.showWarningMessage("Reverse Continue not supported. Using step back for now");
-        await this._runtime.stepBack();
+        await this._runtime.reverseContinue();
         this.sendResponse(response);
     }
 
