@@ -5,9 +5,10 @@ import time
 import socket
 from hgdb import DebugSymbolTable
 from contextlib import closing
+import sys
 
 
-def start_server(port_num, program_name, args=None, wait=0):
+def start_server(port_num, program_name, args=None, wait=0, log=False):
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
     # find build folder
     dirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(d) and "build" in d]
@@ -20,7 +21,8 @@ def start_server(port_num, program_name, args=None, wait=0):
         args = []
     args.append("+DEBUG_PORT=" + str(port_num))
     args = [server_path, "+DEBUG_LOG"] + args
-    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen(args, stdout=subprocess.PIPE if not log else sys.stdout,
+                         stderr=subprocess.PIPE if not log else sys.stdout)
     time.sleep(wait)
     return p
 
@@ -45,6 +47,8 @@ def create_db(filename):
     table = DebugSymbolTable(filename)
     table.store_instance(1, "mod")
     table.store_breakpoint(0, 1, "/tmp/test.py", 1)
+    table.store_variable(0, "a")
+    table.store_context_variable("a", 0, 0)
 
 
 def test_set_breakpoint_continue():
@@ -100,5 +104,22 @@ def test_step_over():
         p.kill()
 
 
+def test_set_value():
+    port = find_free_port()
+    with tempfile.TemporaryDirectory() as temp:
+        db_filename = os.path.join(temp, "debug.db")
+        create_db(db_filename)
+        # start the server
+        s = start_server(port, "test_debug_server")
+        p = start_program(db_filename, port)
+        # continue
+        out = p.communicate(input=b"s\nset a = 100\np a\ns\ns\np a + 1\n")[0]
+        out = out.decode("ascii")
+        assert "100" in out
+        assert "101" in out
+        s.kill()
+        p.kill()
+
+
 if __name__ == "__main__":
-    test_step_over()
+    test_set_value()
