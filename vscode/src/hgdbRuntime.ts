@@ -482,8 +482,8 @@ export class HGDBRuntime extends EventEmitter {
         return promise;
     }
 
-    public async reverseContinue() {
-        await this.sendCommand("reverse_continue");
+    public async reverseContinue(on_error?) {
+        await this.sendCommand("reverse_continue", on_error);
     }
 
     // private methods
@@ -497,9 +497,24 @@ export class HGDBRuntime extends EventEmitter {
         }
     }
 
-    private async sendCommand(command: string) {
-        const payload = {"request": true, "type": "command", "payload": {"command": command}};
-        await this.sendPayload(payload);
+    private async sendCommand(command: string, on_error?) {
+        const token = this.getToken();
+        const payload = {"request": true, "type": "command", "token": token, "payload": {"command": command}};
+        return new Promise<void>((async (resolve, reject) => {
+            this.addCallback(token, async (resp) => {
+                if (resp.status === "error") {
+                    if (on_error) {
+                        on_error();
+                    }
+                    reject();
+                } else {
+                    resolve();
+                }
+            });
+
+            await this.sendPayload(payload);
+        }));
+
     }
 
     private async sendEvaluation(scope: string, expression: string, is_context: boolean) {
