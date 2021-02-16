@@ -22,6 +22,11 @@ interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     dstPath?: string;
 }
 
+interface RefInfo {
+    parent: number;
+    name: string;
+}
+
 export class HGDBDebugSession extends LoggingDebugSession {
 
     private readonly _runtime: HGDBRuntime;
@@ -33,6 +38,8 @@ export class HGDBDebugSession extends LoggingDebugSession {
     private _cancellationTokens = new Map<number, boolean>();
 
     private _threads: Array<Thread> = [new Thread(0, "Thread 0")];
+
+    private _var_mapping = new Map<number, RefInfo>();
 
     /**
      * Creates a new debug adapter that is used for one debug session.
@@ -371,7 +378,8 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 vars.forEach((value: string, name: string) => {
                     // determine whether the name has any dot in it
                     // this is top level
-                    this.processNestedScope(name, handles, instance_id, stack_id, variables, value, false);
+                    this.processNestedScope(name, handles, instance_id, stack_id, variables, value, false,
+                        args.variablesReference);
                 });
             }
 
@@ -391,7 +399,8 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 const vars = gen_vars[stack_id];
                 let handles = new Set<string>();
                 vars.forEach((value: string, name: string) => {
-                    this.processNestedScope(name, handles, instance_id, stack_id, variables, value, true);
+                    this.processNestedScope(name, handles, instance_id, stack_id, variables, value, true,
+                        args.variablesReference);
                 });
             }
 
@@ -414,6 +423,9 @@ export class HGDBDebugSession extends LoggingDebugSession {
                                 let handle_name = id_name + next_name;
                                 let suffix = is_generator ? "generator" : "local";
                                 const ref = this._variableHandles.create(`${handle_name}-${instance_id}-${stack_id}-${suffix}`);
+                                // add ref info
+                                this._var_mapping.set(ref, {"parent": args.variablesReference, "name": sub_name});
+
                                 let value = "Object";
                                 let is_array = false;
                                 if (id !== "self") {
@@ -464,7 +476,8 @@ export class HGDBDebugSession extends LoggingDebugSession {
     }
 
     private processNestedScope(name: string, handles: Set<string>, instance_id: number, stack_id: number,
-                               variables: DebugProtocol.Variable[], value: string, isGenerator: Boolean) {
+                               variables: DebugProtocol.Variable[], value: string, isGenerator: Boolean,
+                               parent_ref: number) {
         if (name.includes(".")) {
             // only create handle for the first level
             // we will handle them recursively
@@ -485,6 +498,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
                     variablesReference: ref
                 });
                 handles.add(handle_name);
+                this._var_mapping.set(ref, {"parent": parent_ref, "name": handle_name});
             }
         } else {
             variables.push({
@@ -569,7 +583,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         const handle = this._variableHandles.get(ref);
         // compute based on the handle str
         const raw_tokens = handle.split('-').filter(n => n);
-        const id: string = raw_tokens[0];
+        const id: string = raw_tokens.length === 3 ? raw_tokens[0] : raw_tokens[3];
         const instance_id: number = parseInt(raw_tokens[1]);
         const int_value: number = parseInt(args.value);
         let is_local = false;
@@ -577,8 +591,17 @@ export class HGDBDebugSession extends LoggingDebugSession {
             // this is local id
             is_local = true;
         }
-        const res = await this._runtime.setValue(args.name, int_value, instance_id, is_local);
+        // need to build the final handle name
+        let info = this._var_mapping.get(ref);
+        let full_name = args.name;
+        while (info) {
+            full_name = info.name + "." + full_name;
+            info = this._var_mapping.get(info.parent);
+        }
+        const res = await this._runtime.setValue(full_name, int_value, instance_id, is_local);
+        response.success = res;
         if (res) {
+            response.body = {value: args.value};
             this.sendResponse(response);
         }
     }
