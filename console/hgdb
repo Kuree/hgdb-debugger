@@ -264,6 +264,22 @@ async def main_loop(client: HGDBClient, db, session, formatter):
         await client.reverse_continue()
         return True
 
+    async def set_value(expr):
+        tokens = expr.split("=")
+        if len(tokens) != 2:
+            print("Invalid set value expression", expr)
+            return
+        var = tokens[0].strip()
+        value = tokens[1].strip()
+        if not value.isdigit():
+            print("Value has to be an integer", value)
+            return
+        if not current_scope.isdigit():
+            print("Invalid scope")
+            return
+        resp = await client.set_value(var, value, breakpoint_id=int(current_scope), check_error=False)
+        check_error(resp)
+
     async def list_file(expr):
         r = parse_fn_ln(expr)
         if r is None:
@@ -336,12 +352,13 @@ async def main_loop(client: HGDBClient, db, session, formatter):
                 "p": print_var, "l": list_file, "list": list_file, "i": info, "info": info, "d": remove_breakpoint,
                 "delete": remove_breakpoint,  "clear": clear_breakpoint, "q": exit_, "exit": exit_, "quit": exit_,
                 "stepback": step_back, "sb": step_back, "reverse_continue": reverse_continue, "rc": reverse_continue,
-                "help": help_}
+                "set": set_value, "help": help_}
 
     commands_help = {continue_: "Continues running the simulation until the next breakpoint",
                      step_over: "Continue running the simulation until it reaches different source line",
                      step_back: "Step backward in the simulation",
                      reverse_continue: "Reverse continue the simulation",
+                     set_value: "Set variable value, e.g. set a = 0",
                      insert_breakpoint: "Puts a breakpoint at particular line",
                      print_var: "Prints the current value of variable or expressions",
                      list_file: "Prints lines from a source file",
