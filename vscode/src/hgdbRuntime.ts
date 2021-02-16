@@ -428,7 +428,7 @@ export class HGDBRuntime extends EventEmitter {
         return promise;
     }
 
-    public async handleREPL(expression: string) {
+    public async handleREPL(expression: string, scope?: string) {
         const tokens = expression.split(" ");
         if (tokens[0] === "scope") {
             if (tokens.length !== 2) {
@@ -444,7 +444,7 @@ export class HGDBRuntime extends EventEmitter {
             // we only allow evaluation inside the scope of an instance, not the current breakpoint
             // since we can have multiple frames at the same, and VS code won't notify us which one
             // is active
-            return await this.sendEvaluation(this._currentScope, expression, false);
+            return await this.sendEvaluation(scope? scope: this._currentScope, expression, false);
         }
     }
 

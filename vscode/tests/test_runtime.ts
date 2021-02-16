@@ -166,7 +166,6 @@ describe('runtime', function () {
         await runtime.step();
         // wait a tiny bit for the server to send breakpoint hit
         await sleep(100);
-        locals = runtime.getCurrentLocalVariables();
         instance_id = 2;
         locals = runtime.getCurrentLocalVariables();
         assert(locals.has(instance_id));
@@ -214,6 +213,30 @@ describe('runtime', function () {
         const ln2 = runtime.currentLineNum();
         expect(ln2).eq(2);
 
+        p.kill();
+    });
+
+    it("test set value", async () => {
+        const port = get_random_port();
+        let p = start_mock_server(port);
+
+        let runtime = new HGDBRuntime.HGDBRuntime("/ignore");
+        runtime.setRuntimePort(port);
+
+        await sleep(100);
+        await runtime.start("ignore");
+
+        await sleep(100);
+        await runtime.setBreakpoint(0);
+        await runtime.continue();
+        await sleep(200);
+        // we are at breakpoints
+        const res = await runtime.setValue("a", 42, 1, false);
+        expect(res).eq(true);
+        await runtime.continue();
+        await sleep(200);
+        const result = await runtime.handleREPL("1 + a", "1");
+        expect(result).eq("43");
         p.kill();
     });
 
