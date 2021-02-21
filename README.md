@@ -20,7 +20,7 @@ Supported Features:
 Road map:
 - Variable watch. Variables that have RTL correspondence should be able to added to the watch panel to help debugging.
 
-To use the debugger, simply press <key>F5</key> and choose `HGDB debug`. Currently it is registered under `*.py` so only Python files can see this options. Feel free to send a PR if you want it supports more languages.
+To use the debugger, simply press <key>F5</key> and choose `HGDB debug`.
 
 Below is a quick overview of its interface
 
