@@ -8,6 +8,7 @@ import {basename} from 'path';
 import {HGDBRuntime, HGDBBreakpoint} from './hgdbRuntime';
 import * as vscode from 'vscode';
 import {abort} from 'process';
+import * as path from "path";
 
 const {Subject} = require('await-notify');
 
@@ -607,6 +608,14 @@ export class HGDBDebugSession extends LoggingDebugSession {
     //---- helpers
 
     private createSource(filePath: string): Source {
+        // if it's in base name format (used by chisel)
+        // we need to convert to absolute path
+        if (basename(filePath) === filePath) {
+            if (vscode.workspace.workspaceFolders) {
+                const dir = vscode.workspace.workspaceFolders[0];
+                filePath = path.join(dir.uri.fsPath, filePath);
+            }
+        }
         return new Source(basename(filePath), this.convertDebuggerPathToClient(filePath), undefined, undefined, 'hgdb-adapter-data');
     }
 }
