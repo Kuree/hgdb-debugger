@@ -408,14 +408,10 @@ async def main_loop(client: HGDBClient, db, session, formatter):
         command_func = commands[command]
         should_recv = await command_func(command_arg.strip())
         if should_recv:
-            while True:
-                info = await client.recv()
-                if info is None:
-                    print("Simulator exited")
-                    return
-                if info["type"] == "breakpoint":
-                    # don't care about other stuff since it's handled properly via recv()
-                    break
+            info = await client.recv_bp()
+            if info is None:
+                print("Simulator exited")
+                return
             line_info, i_id, b_id, local_vars = parse_breakpoint_info(info)
             current_scope = str(b_id)
             render_breakpoint(line_info, b_id)
