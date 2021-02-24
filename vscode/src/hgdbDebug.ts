@@ -9,6 +9,7 @@ import {HGDBRuntime, HGDBBreakpoint} from './hgdbRuntime';
 import * as vscode from 'vscode';
 import {abort} from 'process';
 import * as path from "path";
+import * as glob from 'glob';
 
 const {Subject} = require('await-notify');
 
@@ -106,9 +107,9 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 column: bp.column_num
             }));
         });
-        this._runtime.on('output', (text, filePath, line, column) => {
+        this._runtime.on('output', async (text, filePath, line, column) => {
             const e: DebugProtocol.OutputEvent = new OutputEvent(`${text}\n`);
-            e.body.source = this.createSource(filePath);
+            e.body.source = await this.createSource(filePath);
             e.body.line = this.convertDebuggerLineToClient(line);
             e.body.column = this.convertDebuggerColumnToClient(column);
             this.sendEvent(e);
@@ -283,7 +284,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
-    protected stackTraceRequest(response: DebugProtocol.StackTraceResponse, args: DebugProtocol.StackTraceArguments) {
+    protected async stackTraceRequest(response: DebugProtocol.StackTraceResponse, args: DebugProtocol.StackTraceArguments) {
         // notice that thread ID is the instance id
         const thread_id = args.threadId;
         const stk = this._runtime.stack(thread_id);
@@ -293,15 +294,17 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 totalFrames: 0
             };
         } else {
+            const framesPromise = stk.frames.map(async (f: {
+                index: number;
+                name: string;
+                file: string;
+                line: number;
+            }) => new StackFrame(f.index,
+                f.name, await this.createSource(f.file),
+                this.convertDebuggerLineToClient(f.line)));
+            const frames = await Promise.all(framesPromise);
             response.body = {
-                stackFrames: stk.frames.map((f: {
-                    index: number;
-                    name: string;
-                    file: string;
-                    line: number;
-                }) => new StackFrame(f.index,
-                    f.name, this.createSource(f.file),
-                    this.convertDebuggerLineToClient(f.line))),
+                stackFrames: frames,
                 totalFrames: stk.count
             };
         }
@@ -607,13 +610,26 @@ export class HGDBDebugSession extends LoggingDebugSession {
 
     //---- helpers
 
-    private createSource(filePath: string): Source {
+    private async createSource(filePath: string): Promise<Source> {
         // if it's in base name format (used by chisel)
         // we need to convert to absolute path
         if (basename(filePath) === filePath) {
             if (vscode.workspace.workspaceFolders) {
                 const dir = vscode.workspace.workspaceFolders[0];
-                filePath = path.join(dir.uri.fsPath, filePath);
+                // search recursively in workspace folders
+                for (let i = 0; i < vscode.workspace.workspaceFolders.length; i++) {
+                    const dirPath = vscode.workspace.workspaceFolders[i].uri.fsPath;
+                    let p = new Promise<Array<String>>((resolve, _) => {
+                        glob(path.join(dirPath, "**", filePath), (err, res) => {
+                            resolve(res);
+                        });
+                    });
+                    const paths = await p;
+                    if (paths.length > 0) {
+                        filePath = path.join(dir.uri.fsPath, filePath);
+                        break;
+                    }
+                }
             }
         }
         return new Source(basename(filePath), this.convertDebuggerPathToClient(filePath), undefined, undefined, 'hgdb-adapter-data');
