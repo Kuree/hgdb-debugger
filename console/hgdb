@@ -20,8 +20,10 @@ def get_arguments():
     parser.add_argument("--port", "-p", dest="port", type=int, help="Port number for the simulator", default=8888)
     parser.add_argument("--no-db-connection", dest="no_db_connection", action="store_true",
                         help="If present, will not inform the simulator about the debug symbol table", default=False)
+    parser.add_argument("--dir", "-d", "-w", "--workspace", dest="directory", type=str, default="",
+                        help="Workspace directory to search when the filename is relative")
     args = parser.parse_args()
-    return args.symbol_table, args.port, args.no_db_connection
+    return args
 
 
 def index_filenames(filenames):
@@ -179,7 +181,30 @@ def locate_local_vars(expr, local_vars):
     return target
 
 
-async def main_loop(client: HGDBClient, db, session, formatter):
+def resolve_filename(filename, workspace):
+    if len(workspace) == 0 or os.path.isabs(filename):
+        return filename
+    # need to query the filesystem to find a match
+    # might be slow if there are tons of files
+    for root, dirs, files in os.walk(workspace):
+        if filename in files:
+            return os.path.join(root, filename)
+    return filename
+
+
+def print_threads(resp):
+    payload = resp["payload"]
+    instances = payload["instances"]
+    ids = [instance["instance_id"] for instance in instances]
+    max_id = max(ids)
+    pad_size = max(len(str(max_id)), 2)
+    print("ID" + " " * (pad_size - 2) + "\tInstance")
+    for instance in instances:
+        fmt = "{{0:{0}}}\t{{1}}".format(pad_size)
+        print(fmt.format(instance["instance_id"], instance["instance_name"]))
+
+
+async def main_loop(client: HGDBClient, db, session, formatter, workspace):
     filename_map, shortened_map = index_filenames(db.get_filenames())
     # list of commands
     current_scope = ""
@@ -193,6 +218,10 @@ async def main_loop(client: HGDBClient, db, session, formatter):
     local_vars = {}
     # already set values
     set_values = set()
+    # used to resolve filename
+    workspace = workspace
+    current_instance_index = 0
+    current_breakpoint_resp = None
 
     def check_error(resp):
         if resp["status"] == "error":
@@ -211,15 +240,23 @@ async def main_loop(client: HGDBClient, db, session, formatter):
 
     def parse_fn_ln(expr):
         tokens = expr.split(":")
-        if len(tokens) < 2 or len(tokens) > 3:
-            return None
-        filename = tokens[0]
+        if expr is None or len(expr) == 0:
+            # use current line and line number
+            filename = current_breakpoint_fn
+            line_num = current_breakpoint_ln
+        else:
+
+            if len(tokens) < 2 or len(tokens) > 3:
+                return None
+            filename = tokens[0]
+            if not tokens[1].isdigit():
+                return None
+            line_num = int(tokens[1])
+
         if filename not in filename_map:
-            return
-        filename = filename_map[filename]
-        if not tokens[1].isdigit():
             return None
-        line_num = int(tokens[1])
+        filename = filename_map[filename]
+
         column_num = 0
         if len(tokens) == 3:
             if not tokens[2].isdigit():
@@ -287,9 +324,13 @@ async def main_loop(client: HGDBClient, db, session, formatter):
     async def list_file(expr):
         r = parse_fn_ln(expr)
         if r is None:
-            print("Invalid filename at", expr)
+            if expr is None or len(expr) == 0:
+                print("Invalid filename information")
+            else:
+                print("Invalid filename at", expr)
         else:
             filename, line_num, _ = r
+            filename = resolve_filename(filename, workspace)
             # need to read out the filename given these lines
             lines = read_line(filename, line_num, file_context_cache, 5)
             for line_num, line in lines:
@@ -308,6 +349,9 @@ async def main_loop(client: HGDBClient, db, session, formatter):
                 for bp in resp["payload"]["breakpoints"]:
                     print("{0:8} {1}".format(bp["id"], get_fn_ln_cn(bp["filename"], bp["line_num"], bp["column_num"],
                                                                     shortened_map)))
+            elif cmd == "threads":
+                # print out the threads
+                print_threads(current_breakpoint_resp)
             else:
                 print("Invalid info command", expr)
 
@@ -413,6 +457,7 @@ async def main_loop(client: HGDBClient, db, session, formatter):
             if info is None:
                 print("Simulator exited")
                 return
+            current_breakpoint_resp = info
             line_info, i_id, b_id, local_vars = parse_breakpoint_info(info)
             current_scope = str(b_id)
             render_breakpoint(line_info, b_id)
@@ -420,7 +465,8 @@ async def main_loop(client: HGDBClient, db, session, formatter):
 
 
 def main():
-    filename, port, no_db_connection = get_arguments()
+    args = get_arguments()
+    filename = args.symbol_table
     if not os.path.exists(filename):
         print("Unable to find", filename, file=sys.stderr)
         exit(1)
@@ -429,7 +475,8 @@ def main():
     # use absolute path
     filename = os.path.abspath(filename)
     db = DebugSymbolTable(filename)
-    client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, port, no_db_connection))
+    client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, args.port,
+                                                                                args.no_db_connection))
 
     # prompt session
     session = PromptSession() if sys.stdin.isatty() else None
@@ -439,7 +486,7 @@ def main():
 
     # loop until finish
     try:
-        asyncio.get_event_loop().run_until_complete(main_loop(client, db, session, formatter))
+        asyncio.get_event_loop().run_until_complete(main_loop(client, db, session, formatter, args.directory))
     except (KeyboardInterrupt, EOFError):
         print("exit")
 
