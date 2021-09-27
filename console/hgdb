@@ -28,9 +28,10 @@ def index_filenames(filenames):
     result = {}
     conflicted = set()
     for filename in filenames:
-        result[filename] = filename
         # check if we can do short hand
         basename = os.path.basename(filename)
+        if basename != filename:
+            result[filename] = filename
         if basename in conflicted:
             continue
         if basename in result:
@@ -425,6 +426,8 @@ def main():
         exit(1)
 
     # load the table locally as well
+    # use absolute path
+    filename = os.path.abspath(filename)
     db = DebugSymbolTable(filename)
     client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, port, no_db_connection))
 
