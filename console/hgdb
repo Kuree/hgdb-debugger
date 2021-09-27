@@ -4,6 +4,9 @@ import os
 import argparse
 import asyncio
 import pprint
+import pathlib
+
+import prompt_toolkit.history
 from hgdb import HGDBClient, DebugSymbolTable
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -55,7 +58,11 @@ async def get_client(filename, port, skip_connection=False):
     # create a client and try to connect
     client = HGDBClient(uri, None if skip_connection else filename)
     # connect
-    await client.connect()
+    try:
+        await client.connect()
+    except AttributeError:
+        print("Unable to connect to the debugger. Is the debugger running?")
+        return None
     payload = await client.get_info("status")
     print(payload["payload"]["status"], end="")
     return client
@@ -371,6 +378,7 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
             instances = payload["instances"]
             for i, instance in enumerate(instances):
                 if instance["instance_id"] == instance_id:
+                    print("Switching to thread", i)
                     return CmdResult(False, current_instance_index=i)
 
     async def exit_(_):
@@ -506,9 +514,12 @@ def main():
     db = DebugSymbolTable(filename)
     client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, args.port,
                                                                                 args.no_db_connection))
-
+    if client is None:
+        exit(1)
     # prompt session
-    session = PromptSession() if sys.stdin.isatty() else None
+    # use ~/.hgdb as persistent history
+    prompt_history = os.path.join(pathlib.Path.home(), ".hgdb")
+    session = PromptSession(history=prompt_toolkit.history.FileHistory(prompt_history)) if sys.stdin.isatty() else None
 
     # formatter
     formatter = pygments.formatters.get_formatter_by_name("terminal")
