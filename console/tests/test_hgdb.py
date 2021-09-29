@@ -8,7 +8,7 @@ from contextlib import closing
 import sys
 
 
-def start_server(port_num, program_name, args=None, wait=0, log=False):
+def start_server(port_num, program_name, args=None, wait=0, log=False, supports_rewind=False):
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
     # find build folder
     dirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)) and "build" in d]
@@ -20,6 +20,8 @@ def start_server(port_num, program_name, args=None, wait=0, log=False):
     if args is None:
         args = []
     args.append("+DEBUG_PORT=" + str(port_num))
+    if supports_rewind:
+        args.append("+REWIND")
     args = [server_path, "+DEBUG_LOG"] + args
     p = subprocess.Popen(args, stdout=subprocess.PIPE if not log else sys.stdout,
                          stderr=subprocess.PIPE if not log else sys.stdout)
@@ -74,7 +76,7 @@ def test_rewind_time():
         db_filename = os.path.join(temp, "debug.db")
         create_db(db_filename)
         # start the server
-        s = start_server(port, "test_debug_server")
+        s = start_server(port, "test_debug_server", supports_rewind=True)
         # run the debugger
         p = start_program(db_filename, port)
         # continue
