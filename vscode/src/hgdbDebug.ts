@@ -615,18 +615,17 @@ export class HGDBDebugSession extends LoggingDebugSession {
         // we need to convert to absolute path
         if (basename(filePath) === filePath) {
             if (vscode.workspace.workspaceFolders) {
-                const dir = vscode.workspace.workspaceFolders[0];
                 // search recursively in workspace folders
                 for (let i = 0; i < vscode.workspace.workspaceFolders.length; i++) {
                     const dirPath = vscode.workspace.workspaceFolders[i].uri.fsPath;
-                    let p = new Promise<Array<String>>((resolve, _) => {
+                    let p = new Promise<Array<string>>((resolve, _) => {
                         glob(path.join(dirPath, "**", filePath), (err, res) => {
                             resolve(res);
                         });
                     });
                     const paths = await p;
                     if (paths.length > 0) {
-                        filePath = path.join(dir.uri.fsPath, filePath);
+                        filePath = paths[0];
                         break;
                     }
                 }
