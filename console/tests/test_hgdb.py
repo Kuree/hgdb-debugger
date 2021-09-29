@@ -11,7 +11,7 @@ import sys
 def start_server(port_num, program_name, args=None, wait=0, log=False):
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
     # find build folder
-    dirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(d) and "build" in d]
+    dirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)) and "build" in d]
     assert len(dirs) > 0, "Unable to detect build folder"
     # use the shortest one
     dirs.sort(key=lambda x: len(x))
@@ -64,6 +64,23 @@ def test_set_breakpoint_continue():
         out = p.communicate(input=b"b test.py:1\nc\n")[0]
         out = out.decode("ascii")
         assert "Breakpoint 2 at test.py:1" in out
+        s.kill()
+        p.kill()
+
+
+def test_rewind_time():
+    port = find_free_port()
+    with tempfile.TemporaryDirectory() as temp:
+        db_filename = os.path.join(temp, "debug.db")
+        create_db(db_filename)
+        # start the server
+        s = start_server(port, "test_debug_server")
+        # run the debugger
+        p = start_program(db_filename, port)
+        # continue
+        out = p.communicate(input=b"b test.py:1\nc\ngo 200\ninfo time\n")[0]
+        out = out.decode("ascii")
+        assert "201" in out
         s.kill()
         p.kill()
 
@@ -122,4 +139,4 @@ def test_set_value():
 
 
 if __name__ == "__main__":
-    test_set_value()
+    test_rewind_time()

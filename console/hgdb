@@ -236,6 +236,8 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
     workspace = workspace
     current_instance_index = 0
     current_breakpoint_resp = None
+    # current time
+    current_time = 0
 
     def check_error(resp):
         if resp["status"] == "error":
@@ -347,8 +349,11 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
             filename = resolve_filename(filename, workspace)
             # need to read out the filename given these lines
             lines = read_line(filename, line_num, file_context_cache, 5)
-            for line_num, line in lines:
-                print_line(filename, line_num, line, formatter)
+            if lines is None:
+                print("Unable to find file", filename)
+            else:
+                for line_num, line in lines:
+                    print_line(filename, line_num, line, formatter)
 
     async def info(expr):
         tokens = expr.split(" ")
@@ -366,6 +371,9 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
             elif cmd == "threads":
                 # print out the threads
                 print_threads(current_breakpoint_resp, current_instance_index)
+            elif cmd == "time":
+                # print out the time
+                print(current_time)
             else:
                 print("Invalid info command", expr)
 
@@ -380,6 +388,19 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
                 if instance["instance_id"] == instance_id:
                     print("Switching to thread", i)
                     return CmdResult(False, current_instance_index=i)
+
+    async def go(expr):
+        if not expr.isdigit():
+            print("Invalid time", expr)
+        else:
+            time_val = int(expr)
+            await client.jump(time_val)
+            # check the response
+            # only the replay tool can be used to jump time
+            resp = await client.recv()
+            if check_error(resp):
+                # need to hit continue
+                return await continue_(expr)
 
     async def exit_(_):
         print("exit")
@@ -427,7 +448,7 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
                 "p": print_var, "l": list_file, "list": list_file, "i": info, "info": info, "d": remove_breakpoint,
                 "delete": remove_breakpoint,  "clear": clear_breakpoint, "q": exit_, "exit": exit_, "quit": exit_,
                 "stepback": step_back, "sb": step_back, "reverse_continue": reverse_continue, "rc": reverse_continue,
-                "set": set_value, "thread": thread, "help": help_}
+                "set": set_value, "thread": thread, "go": go, "help": help_}
 
     commands_help = {continue_: "Continues running the simulation until the next breakpoint",
                      step_over: "Continue running the simulation until it reaches different source line",
@@ -442,6 +463,7 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
                      clear_breakpoint: "Clears breakpoints at particular file",
                      exit_: "Detach from the simulator",
                      thread: "Choose instance thread",
+                     go: "Jump to a particular time and continue from there",
                      help_: "Shows help menu"}
 
     # for tab auto-complete
@@ -490,6 +512,9 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
             current_scope = str(b_id)
             render_breakpoint(line_info, b_id)
             current_breakpoint_fn, current_breakpoint_ln, current_breakpoint_cn = line_info
+            # set current time
+            current_time = info["payload"]["time"]
+
         # update local variables
         if cmd_result is not None:
             for name, value in cmd_result.kwargs.items():
