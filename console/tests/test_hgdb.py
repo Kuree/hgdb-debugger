@@ -39,7 +39,7 @@ def find_free_port():
 def start_program(filename, port):
     dirname = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     hgdb = os.path.join(dirname, "hgdb")
-    args = [hgdb, "-i", filename, "-p", str(port), "--no-db-connection"]
+    args = [hgdb, filename, "-p", str(port), "--no-db-connection"]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     return p
 
