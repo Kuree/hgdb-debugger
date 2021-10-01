@@ -5,11 +5,13 @@ import argparse
 import asyncio
 import pprint
 import pathlib
+import enum
 
 import prompt_toolkit.history
 from hgdb import HGDBClient, DebugSymbolTable
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
+from abc import abstractmethod
 import pygments
 import pygments.formatters
 import pygments.lexers
@@ -51,6 +53,400 @@ def index_filenames(filenames):
             # it has been shortened
             shorten[value] = name
     return result, shorten
+
+
+class DebuggingInformation:
+    # this is just a class holding information
+    def __init__(self, db, formatter, workspace):
+        # list of commands
+        self.current_scope = ""
+        self.commands = {}
+        self.commands_help = {}
+        self.file_context_cache = {}
+        self.current_breakpoint_fn = ""
+        self.current_breakpoint_ln = 0
+        self.current_breakpoint_cn = 0
+        self.current_breakpoint_id = 0
+        # for local vars
+        self.local_vars = {}
+        # already set values
+        self.set_values = set()
+        # used to resolve filename
+        self.workspace = workspace
+        self.current_instance_index = 0
+        self.current_breakpoint_resp = None
+        # current time
+        self.current_time = 0
+
+        self.filename_map, self.shortened_map = index_filenames(db.get_filenames())
+        self.formatter = formatter
+
+    def parse(self, resp):
+        payload = resp["payload"]
+        self.current_breakpoint_fn = payload["filename"]
+        self.current_breakpoint_ln = payload["line_num"]
+        self.current_breakpoint_cn = payload["column_num"]
+        # whenever we receive a resp, set the instance index to 0
+        self.current_instance_index = 0
+        instance = payload["instances"][self.current_instance_index]
+        self.current_breakpoint_id = instance["breakpoint_id"]
+        self.current_scope = str(self.current_breakpoint_id)
+        self.local_vars_ = parse_local(instance["local"])
+        self.current_breakpoint_resp = resp
+        self.current_time = payload["time"]
+
+        render_breakpoint(self.current_breakpoint_fn, self.current_breakpoint_ln, self.current_breakpoint_cn, self,
+                          self.current_breakpoint_id)
+
+
+class SubCommand:
+    def __init__(self, parent, info, client, commands, help_str):
+        self.parent = parent
+        self.info: DebuggingInformation = info
+        self.client = client
+
+        self.parser: argparse.ArgumentParser = self.add_command(commands, help_str)
+
+    def add_command(self, commands, help_str):
+        parser = self.parent.add_parser(commands[0], help=help_str, aliases=commands[1:])
+        # add dispatch to it
+
+        async def function(args):
+            return await self.dispatch(args)
+        parser.set_defaults(dispatch=function)
+        return parser
+
+    @staticmethod
+    def check_error(resp):
+        if resp["status"] == "error":
+            print(resp["payload"]["reason"])
+            return False
+        return True
+
+    @abstractmethod
+    async def dispatch(self, args):
+        pass
+
+    def _parse_fn_ln(self, expr):
+        tokens = expr.split(":")
+        if expr is None or len(expr) == 0:
+            # use current line and line number
+            filename = self.info.current_breakpoint_fn
+            line_num = self.info.current_breakpoint_ln
+        else:
+
+            if len(tokens) < 2 or len(tokens) > 3:
+                return None
+            filename = tokens[0]
+            if not tokens[1].isdigit():
+                return None
+            line_num = int(tokens[1])
+
+        if filename not in self.info.filename_map:
+            return None
+        filename = self.info.filename_map[filename]
+
+        column_num = 0
+        if len(tokens) == 3:
+            if not tokens[2].isdigit():
+                return None
+            column_num = int(tokens[2])
+        return filename, line_num, column_num
+
+    def parse_breakpoint_info(self, resp):
+        # clear some values
+        self.info.set_values.clear()
+        payload = resp["payload"]
+        filename = payload["filename"]
+        line_num = payload["line_num"]
+        column_num = payload["column_num"]
+        instance = payload["instances"][self.info.current_instance_index]
+        instance_id = instance["instance_id"]
+        breakpoint_id = instance["breakpoint_id"]
+        local_vars_ = parse_local(instance["local"])
+        return (filename, line_num, column_num), instance_id, breakpoint_id, local_vars_
+
+
+class InsertBreakpointCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["b", "break"]
+        help_str = "Set breakpoint"
+        super(InsertBreakpointCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("filename", help="Breakpoint line number information", type=str)
+
+    async def dispatch(self, args):
+        expr = args.filename
+        r = self._parse_fn_ln(expr)
+        if r is None:
+            print("Invalid breakpoint", expr)
+        else:
+            filename, line_num, column_num = r
+            resp = await self.client.set_breakpoint(filename, line_num, column_num, check_error=False)
+            self.check_error(resp)
+
+
+class RemoveBreakpointCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["delete", "d", "del"]
+        help_str = "Delete breakpoints"
+        super(RemoveBreakpointCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("breakpoint_id", help="Breakpoint ID", type=int)
+
+    async def dispatch(self, args):
+        bp_id = args.breakpoint_id
+        resp = await self.client.remove_breakpoint_id(bp_id, False)
+        self.check_error(resp)
+
+
+class ClearBreakpointCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["clear"]
+        help_str = "Clear breakpoints"
+        super(ClearBreakpointCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("filename", nargs='?', help="Breakpoint filename:line_number", default="")
+
+    async def dispatch(self, args):
+        filename = args.filename
+        if filename:
+            r = self._parse_fn_ln(filename)
+            if r is None:
+                print("Unable to parse breakpoint", filename)
+                return
+            fn, ln, cn = r
+            await self.client.remove_breakpoint(fn, ln, cn)
+        else:
+            # TODO:
+            print("clear all not implemented")
+
+
+class ContinueCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["c", "continue"]
+        help_str = "Continue the execution"
+        super(ContinueCommand, self).__init__(parent, info, client, commands, help_str)
+
+    async def dispatch(self, _):
+        await self.client.continue_()
+        return True
+
+
+class StepOverCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["n", "step-over"]
+        help_str = "Step over the execution"
+        super(StepOverCommand, self).__init__(parent, info, client, commands, help_str)
+
+    async def dispatch(self, _):
+        await self.client.step_over()
+        return True
+
+
+class StepBackCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["step-back"]
+        help_str = "Step back the execution"
+        super(StepBackCommand, self).__init__(parent, info, client, commands, help_str)
+
+    async def dispatch(self, _):
+        await self.client.step_back()
+        return True
+
+
+class ReverseContinueCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["rc", "reverse-continue"]
+        help_str = "Reverse continue the execution"
+        super(ReverseContinueCommand, self).__init__(parent, info, client, commands, help_str)
+
+    async def dispatch(self, _):
+        await self.client.reverse_continue()
+        return True
+
+
+class PrintCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["p", "print", "eval"]
+        help_str = "Print value stored in variable or evaluate a expression"
+        super(PrintCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("expression", type=str, help="Variable/expression to print out")
+
+    async def dispatch(self, args):
+        expr = args.expr
+        target = locate_local_vars(expr, self.info.local_vars) if expr.strip() not in self.info.set_values else None
+        if target is not None:
+            pprint.pprint(target)
+            return
+        resp = await self.client.evaluate(self.info.current_scope, expr, is_context=True, check_error=False)
+        if self.check_error(resp):
+            print(resp["payload"]["result"])
+
+
+class SetValueCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["set"]
+        help_str = "Set the value to a variable. This will not work in replay mode"
+        super(SetValueCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("assignment", type=str, help="Format variable=value, e.g. a=6")
+
+    async def dispatch(self, args):
+        expr = args.assignment
+        tokens = expr.split("=")
+        if len(tokens) != 2:
+            print("Invalid set value expression", expr)
+            self.parser.print_usage()
+            return
+        var = tokens[0].strip()
+        value = tokens[1].strip()
+        if not value.isdigit():
+            print("Value has to be an integer", value)
+            self.parser.print_usage()
+            return
+        if not self.info.current_scope.isdigit():
+            print("Invalid scope")
+            return
+        resp = await self.client.set_value(var, int(value), breakpoint_id=int(self.info.current_scope),
+                                           check_error=False)
+        if self.check_error(resp):
+            self.info.set_values.add(var)
+
+
+class ListCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["l", "list"]
+        help_str = "List source code"
+        super(ListCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("filename", nargs="?", default="", type=str,
+                                 help="File name and line number in the format of filename:line_number")
+        self.parser.add_argument("-n", help="Number of lines centered at the current breakpoint", type=int,
+                                 required=False, default=5)
+
+    async def dispatch(self, args):
+        expr = args.fiename
+        r = self._parse_fn_ln(expr)
+        if r is None:
+            if expr is None or len(expr) == 0:
+                print("Invalid filename information")
+            else:
+                print("Invalid filename at", expr)
+        else:
+            filename, line_num, _ = r
+            filename = resolve_filename(filename, self.info.workspace)
+            # need to read out the filename given these lines
+            lines = read_line(filename, line_num, self.info.file_context_cache, args.n)
+            if lines is None:
+                print("Unable to find file", filename)
+            else:
+                for line_num, line in lines:
+                    print_line(filename, line_num, line, self.info.formatter)
+
+
+class InfoCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["info"]
+        help_str = "Print out simulation and debugging information"
+        super(InfoCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("type", type=InfoCommand.InfoEnum, choices=list(InfoCommand.InfoEnum))
+
+    class InfoEnum(enum.Enum):
+        breakpoint = "breakpoint"
+        threads = "threads"
+        time = "time"
+
+        def __repr__(self):
+            return self.value
+
+    async def dispatch(self, args):
+        cmd = args.type
+        if cmd == InfoCommand.InfoEnum:
+            # need to get the current inserted breakpoints
+            resp = await self.client.get_info("breakpoints")
+            for bp in resp["payload"]["breakpoints"]:
+                print("{0:8} {1}".format(bp["id"], get_fn_ln_cn(bp["filename"], bp["line_num"], bp["column_num"],
+                                                                self.info.shortened_map)))
+        elif cmd == InfoCommand.InfoEnum.threads:
+            # print out the threads
+            print_threads(self.info.current_breakpoint_resp, self.info.current_instance_index)
+        elif cmd == InfoCommand.InfoEnum.time:
+            # print out the time
+            print(self.info.current_time)
+
+
+class ThreadCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["thread"]
+        help_str = "Switch thread based on instance ID"
+        super(ThreadCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("instance_id", type=int, help="Instance ID")
+
+    async def dispatch(self, args):
+        instance_id = args.instance_id
+        payload = self.info.current_breakpoint_resp["payload"]
+        instances = payload["instances"]
+        for i, instance in enumerate(instances):
+            if instance["instance_id"] == instance_id:
+                print("Switching to thread", i)
+                self.info.current_instance_index = i
+
+
+class GoCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["go"]
+        help_str = "Jump to a particular time. Only works for replay mode"
+        super(GoCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("time", type=int, help="Simulation time")
+
+    async def dispatch(self, expr):
+        time_val = expr.time
+        await self.client.jump(time_val)
+        # check the response
+        # only the replay tool can be used to jump time
+        resp = await self.client.recv()
+        if self.check_error(resp):
+            # need to hit continue
+            await self.client.continue_()
+            return True
+
+
+class ExitCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["q", "exit"]
+        help_str = "Exit the debugger"
+        super(ExitCommand, self).__init__(parent, info, client, commands, help_str)
+
+    async def dispatch(self, _):
+        print("exit")
+        await self.client.close()
+        exit(0)
+
+
+class HelpCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["help"]
+        help_str = "Help"
+        super(HelpCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("command", nargs="?", default="",
+                                 help="If provided, print out the help message for the particular command. "
+                                      "Otherwise print out the help message for hgdb")
+
+    async def dispatch(self, args):
+        if args.command:
+            command = args.command
+            if command not in self.parent.choices:
+                print("Unknown command", command)
+            else:
+                self.parent.choices[command].print_help()
+        else:
+            self.parent.print_help()
 
 
 async def get_client(filename, port, skip_connection=False):
@@ -119,7 +515,7 @@ class AutoSuggestFromHistoryPath(AutoSuggest):
                         return Suggestion(line[len(text):])
             tokens = text.split(" ")
             command = tokens[0]
-            if len(tokens) > 1 and command in {"list", "l", "b", "breakpoint"}:
+            if len(tokens) > 1 and command in {"list", "l", "b", "breakpoint", "clear"}:
                 command = command + " "
                 path = text[text.index(command) + len(command):]
                 if path:
@@ -209,262 +605,22 @@ def print_threads(resp, current_idx):
         print(fmt.format(instance["instance_id"], instance["instance_name"]))
 
 
-class CmdResult:
-    def __init__(self, should_recv, **kwargs):
-        self.should_recv = should_recv
-        self.kwargs = kwargs
-
-    def __bool__(self):
-        return self.should_recv
+def render_breakpoint(filename, line_num, column_num, info, breakpoint_id):
+    fn_ln_info = get_fn_ln_cn(filename, line_num, column_num, info.shortened_map)
+    print("Breakpoint", breakpoint_id, "at", fn_ln_info)
+    line_text = read_line(filename, line_num, info.file_context_cache)
+    if line_text is not None and len(line_text) > 0:
+        line_num, line = line_text[0]
+        print_line(filename, line_num, line, info.formatter)
 
 
 async def main_loop(client: HGDBClient, db, session, formatter, workspace):
-    filename_map, shortened_map = index_filenames(db.get_filenames())
-    # list of commands
-    current_scope = ""
-    commands = {}
-    commands_help = {}
-    file_context_cache = {}
-    current_breakpoint_fn = ""
-    current_breakpoint_ln = 0
-    current_breakpoint_cn = 0
-    # for local vars
-    local_vars = {}
-    # already set values
-    set_values = set()
-    # used to resolve filename
-    workspace = workspace
-    current_instance_index = 0
-    current_breakpoint_resp = None
-    # current time
-    current_time = 0
+    info = DebuggingInformation(db, formatter, workspace)
+    parser = argparse.ArgumentParser("hgdb")
 
-    def check_error(resp):
-        if resp["status"] == "error":
-            print(resp["payload"]["reason"])
-            return False
-        return True
-
-    async def print_var(expr):
-        target = locate_local_vars(expr, local_vars) if expr.strip() not in set_values else None
-        if target is not None:
-            pprint.pprint(target)
-            return
-        resp = await client.evaluate(current_scope, expr, is_context=True, check_error=False)
-        if check_error(resp):
-            print(resp["payload"]["result"])
-
-    def parse_fn_ln(expr):
-        tokens = expr.split(":")
-        if expr is None or len(expr) == 0:
-            # use current line and line number
-            filename = current_breakpoint_fn
-            line_num = current_breakpoint_ln
-        else:
-
-            if len(tokens) < 2 or len(tokens) > 3:
-                return None
-            filename = tokens[0]
-            if not tokens[1].isdigit():
-                return None
-            line_num = int(tokens[1])
-
-        if filename not in filename_map:
-            return None
-        filename = filename_map[filename]
-
-        column_num = 0
-        if len(tokens) == 3:
-            if not tokens[2].isdigit():
-                return None
-            column_num = int(tokens[2])
-        return filename, line_num, column_num
-
-    async def insert_breakpoint(expr):
-        r = parse_fn_ln(expr)
-        if r is None:
-            print("Invalid breakpoint", expr)
-        else:
-            filename, line_num, column_num = r
-            resp = await client.set_breakpoint(filename, line_num, column_num, check_error=False)
-            check_error(resp)
-
-    async def remove_breakpoint(expr):
-        if not expr.isdigit():
-            print("Unable to parse breakpoint id", expr)
-        bp_id = int(expr)
-        resp = await client.remove_breakpoint_id(bp_id, False)
-        check_error(resp)
-
-    async def clear_breakpoint(expr):
-        r = parse_fn_ln(expr)
-        if r is None:
-            print("Unable to parse breakpoint", expr)
-            return
-        fn, ln, cn = r
-        await client.remove_breakpoint(fn, ln, cn)
-
-    async def continue_(_):
-        await client.continue_()
-        return CmdResult(True)
-
-    async def step_over(_):
-        await client.step_over()
-        return CmdResult(True)
-
-    async def step_back(_):
-        await client.step_back()
-        return CmdResult(True)
-
-    async def reverse_continue(_):
-        await client.reverse_continue()
-        return CmdResult(True)
-
-    async def set_value(expr):
-        tokens = expr.split("=")
-        if len(tokens) != 2:
-            print("Invalid set value expression", expr)
-            return
-        var = tokens[0].strip()
-        value = tokens[1].strip()
-        if not value.isdigit():
-            print("Value has to be an integer", value)
-            return
-        if not current_scope.isdigit():
-            print("Invalid scope")
-            return
-        resp = await client.set_value(var, int(value), breakpoint_id=int(current_scope), check_error=False)
-        if check_error(resp):
-            set_values.add(var)
-
-    async def list_file(expr):
-        r = parse_fn_ln(expr)
-        if r is None:
-            if expr is None or len(expr) == 0:
-                print("Invalid filename information")
-            else:
-                print("Invalid filename at", expr)
-        else:
-            filename, line_num, _ = r
-            filename = resolve_filename(filename, workspace)
-            # need to read out the filename given these lines
-            lines = read_line(filename, line_num, file_context_cache, 5)
-            if lines is None:
-                print("Unable to find file", filename)
-            else:
-                for line_num, line in lines:
-                    print_line(filename, line_num, line, formatter)
-
-    async def info(expr):
-        tokens = expr.split(" ")
-        if len(tokens) != 1:
-            print("Invalid information command", expr)
-            return
-        else:
-            cmd = tokens[0]
-            if cmd == "b" or cmd == "breakpoint":
-                # need to get the current inserted breakpoints
-                resp = await client.get_info("breakpoints")
-                for bp in resp["payload"]["breakpoints"]:
-                    print("{0:8} {1}".format(bp["id"], get_fn_ln_cn(bp["filename"], bp["line_num"], bp["column_num"],
-                                                                    shortened_map)))
-            elif cmd == "threads":
-                # print out the threads
-                print_threads(current_breakpoint_resp, current_instance_index)
-            elif cmd == "time":
-                # print out the time
-                print(current_time)
-            else:
-                print("Invalid info command", expr)
-
-    async def thread(expr):
-        if not expr.isdigit():
-            print("Invalid instance ID", expr)
-        else:
-            instance_id = int(expr)
-            payload = current_breakpoint_resp["payload"]
-            instances = payload["instances"]
-            for i, instance in enumerate(instances):
-                if instance["instance_id"] == instance_id:
-                    print("Switching to thread", i)
-                    return CmdResult(False, current_instance_index=i)
-
-    async def go(expr):
-        if not expr.isdigit():
-            print("Invalid time", expr)
-        else:
-            time_val = int(expr)
-            await client.jump(time_val)
-            # check the response
-            # only the replay tool can be used to jump time
-            resp = await client.recv()
-            if check_error(resp):
-                # need to hit continue
-                return await continue_(expr)
-
-    async def exit_(_):
-        print("exit")
-        await client.close()
-        exit(0)
-
-    async def help_(expr):
-        if len(expr) == 0:
-            # print out the available commands
-            commands_str = " ".join([n for n in commands])
-            print("List of available commands:\033[1m", commands_str, '\033[0m')
-            print('Type "help" followed by a command to see detailed explanation')
-        else:
-            if expr not in commands:
-                print("Invalid command", expr, "for help")
-                return
-            fn = commands[expr]
-            help_str = commands_help[fn]
-            print('\033[1m' + expr + '\033[0m', "--", help_str)
-
-    def parse_breakpoint_info(resp):
-        # clear some values
-        set_values.clear()
-        payload = resp["payload"]
-        filename = payload["filename"]
-        line_num = payload["line_num"]
-        column_num = payload["column_num"]
-        instance = payload["instances"][current_instance_index]
-        instance_id = instance["instance_id"]
-        breakpoint_id = instance["breakpoint_id"]
-        local_vars_ = parse_local(instance["local"])
-        return (filename, line_num, column_num), instance_id, breakpoint_id, local_vars_
-
-    def render_breakpoint(bp_info, breakpoint_id):
-        (filename, line_num, column_num) = bp_info
-        fn_ln_info = get_fn_ln_cn(filename, line_num, column_num, shortened_map)
-        print("Breakpoint", breakpoint_id, "at", fn_ln_info)
-        line_text = read_line(filename, line_num, file_context_cache)
-        if line_text is not None and len(line_text) > 0:
-            line_num, line = line_text[0]
-            print_line(filename, line_num, line, formatter)
-
-    # registers commands
-    commands = {"c": continue_, "continue": continue_, "s": step_over, "step": step_over, "b": insert_breakpoint,
-                "p": print_var, "l": list_file, "list": list_file, "i": info, "info": info, "d": remove_breakpoint,
-                "delete": remove_breakpoint,  "clear": clear_breakpoint, "q": exit_, "exit": exit_, "quit": exit_,
-                "stepback": step_back, "sb": step_back, "reverse_continue": reverse_continue, "rc": reverse_continue,
-                "set": set_value, "thread": thread, "go": go, "help": help_}
-
-    commands_help = {continue_: "Continues running the simulation until the next breakpoint",
-                     step_over: "Continue running the simulation until it reaches different source line",
-                     step_back: "Step backward in the simulation",
-                     reverse_continue: "Reverse continue the simulation",
-                     set_value: "Set variable value, e.g. set a = 0",
-                     insert_breakpoint: "Puts a breakpoint at particular line",
-                     print_var: "Prints the current value of variable or expressions",
-                     list_file: "Prints lines from a source file",
-                     info: "Shows simulator information",
-                     remove_breakpoint: "Removes breakpoint given the ID",
-                     clear_breakpoint: "Clears breakpoints at particular file",
-                     exit_: "Detach from the simulator",
-                     thread: "Choose instance thread",
-                     go: "Jump to a particular time and continue from there",
-                     help_: "Shows help menu"}
+    command_classes = SubCommand.__subclasses__()
+    for cls in command_classes:
+        cls(parser, info, client)
 
     # for tab auto-complete
     bindings = KeyBindings()
@@ -482,48 +638,25 @@ async def main_loop(client: HGDBClient, db, session, formatter, workspace):
             if sys.stdin.isatty():
                 with patch_stdout():
                     result = await session.prompt_async("(hgdb) ",
-                                                        auto_suggest=AutoSuggestFromHistoryPath(filename_map),
-                                                        rprompt=get_fn_ln_cn(current_breakpoint_fn,
-                                                                             current_breakpoint_ln,
-                                                                             current_breakpoint_cn, shortened_map),
+                                                        auto_suggest=AutoSuggestFromHistoryPath(info.filename_map),
+                                                        rprompt=get_fn_ln_cn(info.current_breakpoint_fn,
+                                                                             info.current_breakpoint_ln,
+                                                                             info.current_breakpoint_cn, info.shortened_map),
                                                         key_bindings=bindings)
             else:
                 result = input("(hgdb) ")
         except KeyboardInterrupt:
             continue
         result = result.strip()
-        command_tokens = result.split(" ")
-        command = command_tokens[0]
-        if command not in commands:
-            print("Invalid command", result)
-            continue
-        command_arg = " ".join(command_tokens[1:]) if len(command_tokens) > 1 else ""
-        command_func = commands[command]
-        cmd_result = await command_func(command_arg.strip())
-        if cmd_result:
-            info = await client.recv_bp()
-            if info is None:
-                print("Simulator exited")
-                return
-            current_breakpoint_resp = info
-            # by default, when breakpoint info is received, we set the thread index to 0
-            current_instance_index = 0
-            line_info, i_id, b_id, local_vars = parse_breakpoint_info(info)
-            current_scope = str(b_id)
-            render_breakpoint(line_info, b_id)
-            current_breakpoint_fn, current_breakpoint_ln, current_breakpoint_cn = line_info
-            # set current time
-            current_time = info["payload"]["time"]
-
-        # update local variables
-        if cmd_result is not None:
-            for name, value in cmd_result.kwargs.items():
-                # modifying locals() is undefined
-                if name == "current_instance_index":
-                    current_instance_index = value
-                    # update local scope
-                    _, __, b_id, local_vars = parse_breakpoint_info(info)
-                    current_scope = str(b_id)
+        args = result.split(" ")
+        args_result = parser.parse_args(args)
+        if hasattr(args_result, "dispatch"):
+            cmd_result = await args_result.dispatch(args_result)
+            if cmd_result:
+                resp = await client.recv_bp()
+                if resp is None:
+                    print("Simulator exited")
+                    return
 
 
 def main():
