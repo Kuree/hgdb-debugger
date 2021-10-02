@@ -114,7 +114,7 @@ def test_step_over():
         # run the debugger
         p = start_program(db_filename, port)
         # continue
-        out = p.communicate(input=b"s\ns\ns\n")[0]
+        out = p.communicate(input=b"n\nn\nn\n")[0]
         out = out.decode("ascii")
         assert "Breakpoint 2 at test.py:1" in out
         assert "Breakpoint 7 at test.py:1" in out
@@ -132,7 +132,7 @@ def test_set_value():
         s = start_server(port, "test_debug_server")
         p = start_program(db_filename, port)
         # continue
-        out = p.communicate(input=b"s\nset a = 100\np a\ns\ns\np a + 1\n")[0]
+        out = p.communicate(input=b"n\nset a=100\np a\nn\nn\np a + 1\n")[0]
         out = out.decode("ascii")
         assert "100" in out
         assert "101" in out
