@@ -93,7 +93,7 @@ class DebuggingInformation:
         instance = payload["instances"][self.current_instance_index]
         self.current_breakpoint_id = instance["breakpoint_id"]
         self.current_scope = str(self.current_breakpoint_id)
-        self.local_vars_ = parse_local(instance["local"])
+        self.local_vars = parse_local(instance["local"])
         self.current_breakpoint_resp = resp
         self.current_time = payload["time"]
 
@@ -154,19 +154,6 @@ class SubCommand:
                 return None
             column_num = int(tokens[2])
         return filename, line_num, column_num
-
-    def parse_breakpoint_info(self, resp):
-        # clear some values
-        self.info.set_values.clear()
-        payload = resp["payload"]
-        filename = payload["filename"]
-        line_num = payload["line_num"]
-        column_num = payload["column_num"]
-        instance = payload["instances"][self.info.current_instance_index]
-        instance_id = instance["instance_id"]
-        breakpoint_id = instance["breakpoint_id"]
-        local_vars_ = parse_local(instance["local"])
-        return (filename, line_num, column_num), instance_id, breakpoint_id, local_vars_
 
 
 class InsertBreakpointCommand(SubCommand):
@@ -285,7 +272,10 @@ class PrintCommand(SubCommand):
             return
         resp = await self.client.evaluate(self.info.current_scope, expr, is_context=True, check_error=False)
         if self.check_error(resp):
-            print(resp["payload"]["result"])
+            if "result" not in resp["payload"]:
+                print("Error in protocol setup\nRESP:", resp)
+            else:
+                print(resp["payload"]["result"])
 
 
 class SetValueCommand(SubCommand):
@@ -330,7 +320,7 @@ class ListCommand(SubCommand):
                                  required=False, default=5)
 
     async def dispatch(self, args):
-        expr = args.fiename
+        expr = args.filename
         r = self._parse_fn_ln(expr)
         if r is None:
             if expr is None or len(expr) == 0:
@@ -410,13 +400,11 @@ class GoCommand(SubCommand):
 
     async def dispatch(self, expr):
         time_val = expr.time
-        await self.client.jump(time_val)
+        resp = await self.client.jump(time_val)
         # check the response
         # only the replay tool can be used to jump time
-        resp = await self.client.recv()
         if self.check_error(resp):
-            # need to hit continue
-            await self.client.continue_()
+            # due to the event-driven set up. once we change the time it will start to evaluate everything
             return True
 
 
