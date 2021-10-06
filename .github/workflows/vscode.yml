@@ -48,6 +48,6 @@ jobs:
       shell: bash
       run: |
         cd vscode
-        npm run deploy
+        npm run publish
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
