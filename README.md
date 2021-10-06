@@ -16,15 +16,19 @@ Supported Features:
 - REPL
 - Multiple instances view
 - Complex data type rendering
+- Reverse debugging
 
 Road map:
 - Variable watch. Variables that have RTL correspondence should be able to added to the watch panel to help debugging.
 
 To use the debugger, simply press <key>F5</key> and choose `HGDB debug`.
 
-Below is a quick overview of its interface
+Below is a quick overview of its interface using Rocket-Chip as an example:
 
-![Gif of hgdb-vscode](https://rawcdn.githack.com/Kuree/kratos-vscode/d0dc4e40b186297da9a419298459f4dbc2a13224/images/demo.gif)
+
+https://user-images.githubusercontent.com/6099149/136262887-8ee63329-4bb7-4372-81ab-f06411064926.mp4
+
+
 
 ## Console
 The console version is implemented in Python and mimics the style of `gdb`. It uses built-in Python-bindings to communicate with the `hgdb` runtime.
