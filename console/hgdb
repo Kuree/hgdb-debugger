@@ -345,7 +345,7 @@ class InfoCommand(SubCommand):
         help_str = "Print out simulation and debugging information"
         super(InfoCommand, self).__init__(parent, info, client, commands, help_str)
 
-        self.parser.add_argument("type", type=InfoCommand.InfoEnum, choices=list(InfoCommand.InfoEnum))
+        self.parser.add_argument("type", type=InfoCommand.InfoEnum, choices=[v for v in InfoCommand.InfoEnum])
 
     class InfoEnum(enum.Enum):
         breakpoint = "breakpoint"
@@ -357,11 +357,11 @@ class InfoCommand(SubCommand):
 
     async def dispatch(self, args):
         cmd = args.type
-        if cmd == InfoCommand.InfoEnum:
+        if cmd == InfoCommand.InfoEnum.breakpoint:
             # need to get the current inserted breakpoints
             resp = await self.client.get_info("breakpoints")
             for bp in resp["payload"]["breakpoints"]:
-                print("{0:8} {1}".format(bp["id"], get_fn_ln_cn(bp["filename"], bp["line_num"], bp["column_num"],
+                print("{0:8}\t{1}".format(bp["id"], get_fn_ln_cn(bp["filename"], bp["line_num"], bp["column_num"],
                                                                 self.info.shortened_map)))
         elif cmd == InfoCommand.InfoEnum.threads:
             # print out the threads
@@ -388,6 +388,22 @@ class ThreadCommand(SubCommand):
             if instance["instance_id"] == instance_id:
                 print("Switching to thread", i)
                 self.info.current_instance_index = i
+
+
+class ConditionCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["condition"]
+        help_str = "Set breakpoint conditions"
+        super(ConditionCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("breakpoint_id", type=int, help="Breakpoint ID")
+        self.parser.add_argument("expr", type=str, nargs="+", help="Breakpoint condition")
+
+    async def dispatch(self, args):
+        breakpoint_id = args.breakpoint_id
+        condition = " ".join(args.expr)
+        resp = await self.client.set_breakpoint_id(breakpoint_id, cond=condition)
+        self.check_error(resp)
 
 
 class GoCommand(SubCommand):
