@@ -1,0 +1,12 @@
+.vscode/**/*
+.gitignore
+.github/**/*
+src/**/*
+out/tests/**/*
+**/*.js.map
+build
+.idea
+tests
+node_modules
+tsconfig.json
+out

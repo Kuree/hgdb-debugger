@@ -8,7 +8,7 @@ import * as Net from 'net';
 
 export function activate(context: vscode.ExtensionContext) {
 
-    context.subscriptions.push(vscode.commands.registerCommand('extension.hgdb-debug.getProgramName', config => {
+    context.subscriptions.push(vscode.commands.registerCommand('extension.hgdb-vscode.getProgramName', config => {
         return vscode.window.showInputBox({
             placeHolder: "Please enter the name of a debug database file in the workspace folder",
             value: "debug.db"
