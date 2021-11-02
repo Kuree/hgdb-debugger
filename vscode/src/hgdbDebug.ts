@@ -212,16 +212,14 @@ export class HGDBDebugSession extends LoggingDebugSession {
         // It's a command practice to do so (chrome-dev-core does that as well)
         await this._runtime.clearBreakpoints(path);
 
-        let inserted_breakpoints = new Set<string>();
-
         // set and verify breakpoint locations
         let breakpoints_result = new Array<DebugProtocol.Breakpoint>();
 
         for (const bp_entry of breakpoints) {
+            console.log(bp_entry);
             const bps = await this._runtime.verifyBreakpoint(path, this.convertClientLineToDebugger(bp_entry.line),
                 bp_entry.column ? this.convertClientColumnToDebugger(bp_entry.column) : undefined);
-            // tslint:disable-next-line:triple-equals
-            if (bps.length == 0) {
+            if (bps.length === 0) {
                 // invalid breakpoint
                 // use -1 for invalid bp id
                 const b = <DebugProtocol.Breakpoint>new Breakpoint(false, this.convertDebuggerLineToClient(bp_entry.line),
@@ -229,19 +227,18 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 breakpoints_result.push(b);
             } else {
                 // we only need to create new breakpoint if we haven't created it yet at the same location
-                for (const bp of bps) {
-                    const key = `${path}:${bp.line_num}:${bp.column_num}`;
-                    if (!inserted_breakpoints.has(key)) {
-                        const b = <DebugProtocol.Breakpoint>new Breakpoint(bp.valid, this.convertDebuggerLineToClient(bp.line_num),
-                            bp.column_num > 0 ? this.convertDebuggerColumnToClient(bp.column_num) : undefined);
-                        b.id = bp.id;
-
+                for (let i = 0; i < bps.length; i++) {
+                    const bp = bps[i];
+                    const b = <DebugProtocol.Breakpoint>new Breakpoint(bp.valid, this.convertDebuggerLineToClient(bp.line_num),
+                        bp.column_num > 0 ? this.convertDebuggerColumnToClient(bp.column_num) : undefined);
+                    b.id = bp.id;
+                    // notice that if there are multiple lines and we only see line number
+                    // we only need to set the first one
+                    // for some random reason
+                    if (i === 0 || (bps.length > 1 && bp_entry.column !== undefined)) {
                         breakpoints_result.push(b);
-
-                        // put it into the set
-                        inserted_breakpoints.add(key);
+                        await this._runtime.setBreakpoint(bp.id, bp_entry.condition);
                     }
-                    await this._runtime.setBreakpoint(bp.id, bp_entry.condition);
                 }
             }
 
