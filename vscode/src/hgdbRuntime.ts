@@ -34,6 +34,7 @@ export class HGDBRuntime extends EventEmitter {
 
     private _currentFilename: string;
     private _currentLineNum: number;
+    private _currentColNum: number | undefined;
 
     private readonly _workspaceDir: string;
 
@@ -59,6 +60,10 @@ export class HGDBRuntime extends EventEmitter {
 
     public currentLineNum() {
         return this._currentLineNum;
+    }
+
+    public currentColNum() {
+        return this._currentColNum;
     }
 
     public getCurrentLocalVariables() {
@@ -189,6 +194,12 @@ export class HGDBRuntime extends EventEmitter {
     private addFrameInfo(payload: Object) {
         this._currentFilename = payload["filename"];
         this._currentLineNum = Number.parseInt(payload["line_num"]);
+        const col = Number.parseInt(payload["col_num"]);
+        if (col !== undefined && col > 0) {
+            this._currentColNum = col;
+        } else {
+            this._currentColNum = undefined;
+        }
 
         const instances: Array<any> = payload["instances"];
         for (let i = 0; i < instances.length; i++) {
@@ -367,12 +378,14 @@ export class HGDBRuntime extends EventEmitter {
             const num_frames = frames_infos.length;
             const filename = this.currentFilename();
             const line_num = this.currentLineNum();
+            const col_num = this.currentColNum();
             for (let i = 0; i < num_frames; i++) {
                 frames.push({
                     index: HGDBRuntime.getFrameID(instance_id, i),
                     name: `Instance ID ${instance_id}`,
                     file: filename,
-                    line: line_num
+                    line: line_num,
+                    col: col_num
                 });
             }
             return {
@@ -444,7 +457,7 @@ export class HGDBRuntime extends EventEmitter {
             // we only allow evaluation inside the scope of an instance, not the current breakpoint
             // since we can have multiple frames at the same, and VS code won't notify us which one
             // is active
-            return await this.sendEvaluation(scope? scope: this._currentScope, expression, false);
+            return await this.sendEvaluation(scope ? scope : this._currentScope, expression, false);
         }
     }
 

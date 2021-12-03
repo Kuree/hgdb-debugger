@@ -296,9 +296,11 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 name: string;
                 file: string;
                 line: number;
+                col: number | undefined;
             }) => new StackFrame(f.index,
                 f.name, await this.createSource(f.file),
-                this.convertDebuggerLineToClient(f.line)));
+                this.convertDebuggerLineToClient(f.line),
+                f.col ? this.convertDebuggerColumnToClient(f.col) : undefined));
             const frames = await Promise.all(framesPromise);
             response.body = {
                 stackFrames: frames,
