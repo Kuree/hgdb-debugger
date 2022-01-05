@@ -36,108 +36,85 @@ def find_free_port():
         return s.getsockname()[1]
 
 
-def start_program(filename, port):
+def start_program(port):
     dirname = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     hgdb = os.path.join(dirname, "hgdb")
-    args = [hgdb, filename, "-p", str(port), "--no-db-connection"]
+    # use a fake db for arguments
+    args = [hgdb, "no-db", "-p", str(port), "--no-db-connection"]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     return p
 
 
-def create_db(filename):
-    # only need to fill in the breakpoints for file names
-    table = DebugSymbolTable(filename)
-    table.store_instance(1, "mod")
-    table.store_breakpoint(0, 1, "/tmp/test.py", 1)
-    table.store_variable(0, "a")
-    table.store_context_variable("a", 0, 0)
-
-
 def test_set_breakpoint_continue():
     port = find_free_port()
-    with tempfile.TemporaryDirectory() as temp:
-        db_filename = os.path.join(temp, "debug.db")
-        create_db(db_filename)
-        # start the server
-        s = start_server(port, "test_debug_server")
-        # run the debugger
-        p = start_program(db_filename, port)
-        # continue
-        out = p.communicate(input=b"b test.py:1\nc\n")[0]
-        out = out.decode("ascii")
-        assert "Breakpoint 2 at test.py:1" in out
-        s.kill()
-        p.kill()
+    # start the server
+    s = start_server(port, "test_debug_server")
+    # run the debugger
+    p = start_program(port)
+    # continue
+    out = p.communicate(input=b"b test.py:1\nc\n")[0]
+    out = out.decode("ascii")
+    assert "Breakpoint 2 at test.py:1" in out
+    s.kill()
+    p.kill()
 
 
 def test_rewind_time():
     port = find_free_port()
-    with tempfile.TemporaryDirectory() as temp:
-        db_filename = os.path.join(temp, "debug.db")
-        create_db(db_filename)
-        # start the server
-        s = start_server(port, "test_debug_server", supports_rewind=True)
-        # run the debugger
-        p = start_program(db_filename, port)
-        # continue
-        out = p.communicate(input=b"b test.py:1\nc\ngo 200\ninfo time\n")[0]
-        out = out.decode("ascii")
-        assert "201" in out
-        s.kill()
-        p.kill()
+    # start the server
+    s = start_server(port, "test_debug_server", supports_rewind=True)
+    # run the debugger
+    p = start_program(port)
+    # continue
+    out = p.communicate(input=b"b test.py:1\nc\ngo 200\ninfo time\n")[0]
+    out = out.decode("ascii")
+    assert "201" in out
+    s.kill()
+    p.kill()
 
 
 def test_repl():
     port = find_free_port()
-    with tempfile.TemporaryDirectory() as temp:
-        db_filename = os.path.join(temp, "debug.db")
-        create_db(db_filename)
-        # start the server
-        s = start_server(port, "test_debug_server")
-        # run the debugger
-        p = start_program(db_filename, port)
-        # continue
-        out = p.communicate(input=b"p 41 + mod.a\n")[0]
-        out = out.decode("ascii")
-        assert "42" in out
-        s.kill()
-        p.kill()
+    # start the server
+    s = start_server(port, "test_debug_server")
+    # run the debugger
+    p = start_program(port)
+    # continue
+    out = p.communicate(input=b"p 41 + mod.a\n")[0]
+    out = out.decode("ascii")
+    assert "42" in out
+    s.kill()
+    p.kill()
 
 
 def test_step_over():
     port = find_free_port()
-    with tempfile.TemporaryDirectory() as temp:
-        db_filename = os.path.join(temp, "debug.db")
-        create_db(db_filename)
-        # start the server
-        s = start_server(port, "test_debug_server")
-        # run the debugger
-        p = start_program(db_filename, port)
-        # continue
-        out = p.communicate(input=b"n\nn\nn\n")[0]
-        out = out.decode("ascii")
-        assert "Breakpoint 2 at test.py:1" in out
-        assert "Breakpoint 7 at test.py:1" in out
-        assert "Breakpoint 0 at test.py:2" in out
-        s.kill()
-        p.kill()
+    # start the server
+    s = start_server(port, "test_debug_server")
+    # run the debugger
+    p = start_program(port)
+    # continue
+    out = p.communicate(input=b"n\nn\nn\n")[0]
+    out = out.decode("ascii")
+    assert "Breakpoint 2 at test.py:1" in out
+    assert "Breakpoint 7 at test.py:1" in out
+    assert "Breakpoint 0 at test.py:2" in out
+    s.kill()
+    p.kill()
 
 
 def test_set_value():
     port = find_free_port()
-    with tempfile.TemporaryDirectory() as temp:
-        db_filename = os.path.join(temp, "debug.db")
-        create_db(db_filename)
-        # start the server
-        s = start_server(port, "test_debug_server")
-        p = start_program(db_filename, port)
-        # continue
-        out = p.communicate(input=b"n\nset a=100\np a\nn\nn\np a + 1\n")[0]
-        out = out.decode("ascii")
-        assert "100" in out
-        assert "101" in out
-        s.kill()
-        p.kill()
+    # start the server
+    s = start_server(port, "test_debug_server")
+    p = start_program(port)
+    # continue
+    out = p.communicate(input=b"n\nset a=100\np a\nn\nn\np a + 1\n")[0]
+    out = out.decode("ascii")
+    assert "100" in out
+    assert "101" in out
+    s.kill()
+    p.kill()
 
 
 if __name__ == "__main__":
