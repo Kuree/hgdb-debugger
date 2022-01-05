@@ -8,7 +8,7 @@ import pathlib
 import enum
 
 import prompt_toolkit.history
-from hgdb import HGDBClient
+from hgdb import HGDBClient, HGDBClientException
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 from abc import abstractmethod
@@ -469,6 +469,9 @@ async def get_client(filename, port, skip_connection=False):
         await client.connect()
     except AttributeError:
         print("Unable to connect to the debugger. Is the debugger running?")
+        return None
+    except HGDBClientException as ex:
+        print(*ex.args)
         return None
     payload = await client.get_info("status")
     print(payload["payload"]["status"], end="")
