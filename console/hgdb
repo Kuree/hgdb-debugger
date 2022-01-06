@@ -175,6 +175,24 @@ class InsertBreakpointCommand(SubCommand):
             self.check_error(resp)
 
 
+class InsertWatchPointCommand(SubCommand):
+    def __init__(self, parent, info, client):
+        commands = ["w", "watch"]
+        help_str = "Set watchpoint"
+        super(InsertWatchPointCommand, self).__init__(parent, info, client, commands, help_str)
+
+        self.parser.add_argument("variable", help="Variable name to watch", type=str)
+        self.parser.add_argument("--cond", "--condition", help="Watchpoint condition", type=str, default="",
+                                 required=False, dest="condition")
+
+    async def dispatch(self, args):
+        var = args.variable
+        cond = args.condition
+        bp = self.info.current_breakpoint_id
+        resp = await self.client.set_data_breakpoint(bp, var, cond=cond)
+        self.check_error(resp)
+
+
 class RemoveBreakpointCommand(SubCommand):
     def __init__(self, parent, info, client):
         commands = ["delete", "d", "del"]
