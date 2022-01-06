@@ -117,5 +117,18 @@ def test_set_value():
     p.kill()
 
 
+def test_data_breakpoint():
+    port = find_free_port()
+    s = start_server(port, "test_debug_server")
+    p = start_program(port)
+    # continue
+    out = p.communicate(input=b"w c\nc\nc\ninfo watchpoint\n")[0]
+    out = out.decode("ascii")
+    assert "Watchpoint 0 at test.py:2" in out
+    assert "Watchpoint 2 at test.py:1" in out
+    assert "3\ttest.py:5\tc" in out
+    s.kill()
+    p.kill()
+
 if __name__ == "__main__":
-    test_rewind_time()
+    test_data_breakpoint()
