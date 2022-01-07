@@ -339,6 +339,73 @@ export class HGDBRuntime extends EventEmitter {
         return await promise;
     }
 
+    public async clearDataBreakpoints() {
+        const token = this.getToken();
+        return new Promise<void>((resolve, reject) => {
+            this.addCallback(token, (resp) => {
+                if (resp.status === "success") {
+                    resolve();
+                } else {
+                    reject();
+                }
+            });
+            const payload = {
+                "request": true, "type": "data-breakpoint", "token": token,
+                "payload": {
+                    "action": "clear"
+                }
+            };
+            this.sendPayload(payload);
+        });
+    }
+
+    public async validateDataBreakpoint(instanceID: number, var_name: string) {
+        const bp_id = this._currentBreakpointIDs.get(instanceID);
+        if (!bp_id) {
+            return new Promise<boolean>(() => { return false; });
+        } else {
+            const token = this.getToken();
+            return new Promise<boolean>(() => {
+                this.addCallback(token, (resp) => {
+                    return resp.status === "success";
+                });
+                const payload = {
+                    "request": true, "type": "data-breakpoint", "token": token,
+                    "payload": {
+                        "var_name": var_name,
+                        "breakpoint-id": bp_id,
+                        "action": "info"
+                    }
+                };
+                this.sendPayload(payload);
+            });
+        }
+    }
+
+    public async addDataBreakPoint(instanceID: number, var_name: string, cond: string) {
+        const bp_id = this._currentBreakpointIDs.get(instanceID);
+        if (!bp_id) {
+            return new Promise<boolean>(() => { return false; });
+        } else {
+            const token = this.getToken();
+            return new Promise<boolean>(() => {
+                this.addCallback(token, (resp) => {
+                    return resp.status === "success";
+                });
+                const payload = {
+                    "request": true, "type": "data-breakpoint", "token": token,
+                    "payload": {
+                        "var_name": var_name,
+                        "breakpoint-id": bp_id,
+                        "condition": cond,
+                        "action": "add"
+                    }
+                };
+                this.sendPayload(payload);
+            });
+        }
+    }
+
     public static getFrameID(instance_id: number, stack_index: number): number {
         // notice that we need to store instance id and stack index into a single
         // number

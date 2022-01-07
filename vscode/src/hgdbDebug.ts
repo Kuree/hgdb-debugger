@@ -78,12 +78,16 @@ export class HGDBDebugSession extends LoggingDebugSession {
         this._runtime.on('stopOnStep', () => {
             sendEventThread(StoppedEvent, 'step');
         });
-        this._runtime.on('stopOnBreakpoint', () => {
-            // clean up the current threads
+        let clear_threads = () => {
             for (let i = 0; i < this._threads.length; i++) {
                 this.sendEvent(new ThreadEvent('exited', this._threads[i].id));
             }
+
             this._threads = [];
+        };
+        this._runtime.on('stopOnBreakpoint', () => {
+            // clean up the current threads
+            clear_threads();
             const names = this._runtime.getCurrentGeneratorNames();
             names.forEach((name: string, instance_id: number) => {
                 this._threads.push(new Thread(instance_id, name));
@@ -93,8 +97,17 @@ export class HGDBDebugSession extends LoggingDebugSession {
             });
         });
         this._runtime.on('stopOnDataBreakpoint', () => {
-            this._threads = [new Thread(0, "Thread 0")];
-            this.sendEvent(new StoppedEvent('data breakpoint', 0));
+            // data breakpoint is implemented the same way as the normal breakpoint in the end,
+            // so we reuse most of the logic
+            // clean up the current threads
+            clear_threads();
+            const names = this._runtime.getCurrentGeneratorNames();
+            names.forEach((name: string, instance_id: number) => {
+                this._threads.push(new Thread(instance_id, name));
+            });
+            names.forEach((_: string, instance_id: number) => {
+                this.sendEvent(new StoppedEvent('data breakpoint', instance_id));
+            });
         });
         this._runtime.on('stopOnException', () => {
             this._threads = [new Thread(0, "Thread 0")];
@@ -145,7 +158,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         response.body.supportsStepInTargetsRequest = false;
 
         // make VS Code to support data breakpoints
-        response.body.supportsDataBreakpoints = false;
+        response.body.supportsDataBreakpoints = true;
 
         // make VS Code to support completion in REPL
         response.body.supportsCompletionsRequest = false;
@@ -548,6 +561,56 @@ export class HGDBDebugSession extends LoggingDebugSession {
         }
     }
 
+    protected async dataBreakpointInfoRequest(response: DebugProtocol.DataBreakpointInfoResponse, args: DebugProtocol.DataBreakpointInfoArguments, request?: DebugProtocol.Request) {
+        const name = args.name;
+        const instance_id = this._getInstanceID(args.variablesReference);
+        let error = false;
+        if (instance_id === undefined) {
+            error = true;
+        } else {
+            if (!error) {
+                error = await this._runtime.validateDataBreakpoint(instance_id, name);
+            }
+        }
+
+        if (error || instance_id === undefined) {
+            response.body = {
+                dataId: null,
+                description: "Invalid data breakpoint",
+                accessTypes: undefined,
+                canPersist: false
+            };
+        } else {
+            response.body.dataId = instance_id.toString() + "-" + args.name;
+            response.body.description = args.name;
+            response.body.accessTypes = ["write"];
+            response.body.canPersist = true;
+        }
+
+        this.sendResponse(response);
+    }
+
+    protected async setDataBreakpointsRequest(response: DebugProtocol.SetDataBreakpointsResponse, args: DebugProtocol.SetDataBreakpointsArguments, request?: DebugProtocol.Request) {
+        // clear all data breakpoints first
+        await this._runtime.clearDataBreakpoints();
+        response.body = {
+            breakpoints: []
+        };
+
+        for (const dbp of args.breakpoints) {
+            let cond: string = dbp.hitCondition === undefined ? "" : dbp.hitCondition;
+            const raw_tokens = dbp.dataId.split('-').filter(n => n);
+            let instance_id = Number.parseInt(raw_tokens[0]);
+            let var_name = raw_tokens[1];
+
+            const ok = await this._runtime.addDataBreakPoint(instance_id, var_name, cond);
+            response.body.breakpoints.push({
+                verified: ok
+            });
+        }
+
+    }
+
     protected async continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments) {
         await this._runtime.continue();
         this.sendResponse(response);
@@ -608,6 +671,17 @@ export class HGDBDebugSession extends LoggingDebugSession {
     }
 
     //---- helpers
+
+    private _getInstanceID(ref: number | undefined) {
+        if (ref === undefined) {
+            return undefined;
+        }
+        const handle = this._variableHandles.get(ref);
+        // compute based on the handle str
+        const raw_tokens = handle.split('-').filter(n => n);
+        const instance_id: number = parseInt(raw_tokens[1]);
+        return instance_id;
+    }
 
     private async createSource(filePath: string): Promise<Source> {
         // if it's in base name format (used by chisel)
