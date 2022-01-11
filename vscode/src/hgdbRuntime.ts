@@ -22,6 +22,7 @@ export class HGDBRuntime extends EventEmitter {
     private _currentGeneratorNames = new Map<number, string>();
     private _currentBreakpointIDs = new Map<number, number>();
     private _currentGeneratorVariables = new Map<number, Array<Map<string, string>>>();
+    private _currentBreakpointTypes = new Map<number, string>();
     private _currentTime = 0;
 
     // need to pull this from configuration
@@ -32,8 +33,8 @@ export class HGDBRuntime extends EventEmitter {
     private _ws: ws.client = new ws.client();
     private _connection: ws.connection | undefined;
 
-    private _currentFilename: string;
-    private _currentLineNum: number;
+    private _currentFilename: string = "";
+    private _currentLineNum: number = 1;
     private _currentColNum: number | undefined;
 
     private readonly _workspaceDir: string;
@@ -235,6 +236,9 @@ export class HGDBRuntime extends EventEmitter {
             // set up the mapping between instance name and breakpoint id
             // used for REPL
             this._currentBreakpointIDs.set(instance_id, breakpoint_id);
+            // set the breakpoint type
+            const bp_type = entry["bp_type"];
+            this._currentBreakpointTypes.set(instance_id, bp_type);
         }
 
         // set time
@@ -362,7 +366,9 @@ export class HGDBRuntime extends EventEmitter {
     public async validateDataBreakpoint(instanceID: number, var_name: string) {
         const bp_id = this._currentBreakpointIDs.get(instanceID);
         if (!bp_id) {
-            return new Promise<boolean>(() => { return false; });
+            return new Promise<boolean>(() => {
+                return false;
+            });
         } else {
             const token = this.getToken();
             return new Promise<boolean>((resolve) => {
@@ -385,7 +391,9 @@ export class HGDBRuntime extends EventEmitter {
     public async addDataBreakPoint(instanceID: number, var_name: string, cond: string) {
         const bp_id = this._currentBreakpointIDs.get(instanceID);
         if (!bp_id) {
-            return new Promise<boolean>(() => { return false; });
+            return new Promise<boolean>(() => {
+                return false;
+            });
         } else {
             const token = this.getToken();
             return new Promise<boolean>((resolve) => {
@@ -684,6 +692,7 @@ export class HGDBRuntime extends EventEmitter {
         this._currentGeneratorVariables.clear();
         this._currentGeneratorNames.clear();
         this._currentBreakpointIDs.clear();
+        this._currentBreakpointTypes.clear();
         // we will get a list of values
         this.addFrameInfo(payload);
         // recreate threads
@@ -738,7 +747,18 @@ export class HGDBRuntime extends EventEmitter {
      * Fire events if the simulator hits a breakpoint
      */
     private fireEventsForBreakPoint() {
-        this.sendEvent("stopOnBreakpoint");
+        // depends on if we hit a data breakpoint or not
+        let hasData = false;
+        this._currentBreakpointTypes.forEach((t) => {
+            if (t === "data") {
+                hasData = true;
+            }
+        });
+        if (hasData) {
+            this.sendEvent("stopOnDataBreakpoint");
+        } else {
+            this.sendEvent("stopOnBreakpoint");
+        }
     }
 
     private fireEventsForException() {
