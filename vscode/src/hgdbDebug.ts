@@ -569,18 +569,18 @@ export class HGDBDebugSession extends LoggingDebugSession {
             error = true;
         } else {
             if (!error) {
-                error = await this._runtime.validateDataBreakpoint(instance_id, name);
+                error = !(await this._runtime.validateDataBreakpoint(instance_id, name));
             }
         }
 
-        if (error || instance_id === undefined) {
-            response.body = {
-                dataId: null,
-                description: "Invalid data breakpoint",
-                accessTypes: undefined,
-                canPersist: false
-            };
-        } else {
+        response.body = {
+            dataId: null,
+            description: "Invalid data breakpoint",
+            accessTypes: undefined,
+            canPersist: false
+        };
+
+        if (!error && instance_id !== undefined) {
             response.body.dataId = instance_id.toString() + "-" + args.name;
             response.body.description = args.name;
             response.body.accessTypes = ["write"];
@@ -608,7 +608,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 verified: ok
             });
         }
-
+        this.sendResponse(response);
     }
 
     protected async continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments) {

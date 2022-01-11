@@ -365,9 +365,9 @@ export class HGDBRuntime extends EventEmitter {
             return new Promise<boolean>(() => { return false; });
         } else {
             const token = this.getToken();
-            return new Promise<boolean>(() => {
+            return new Promise<boolean>((resolve) => {
                 this.addCallback(token, (resp) => {
-                    return resp.status === "success";
+                    resolve(resp.status === "success");
                 });
                 const payload = {
                     "request": true, "type": "data-breakpoint", "token": token,
@@ -388,9 +388,9 @@ export class HGDBRuntime extends EventEmitter {
             return new Promise<boolean>(() => { return false; });
         } else {
             const token = this.getToken();
-            return new Promise<boolean>(() => {
+            return new Promise<boolean>((resolve) => {
                 this.addCallback(token, (resp) => {
-                    return resp.status === "success";
+                    resolve(resp.status === "success");
                 });
                 const payload = {
                     "request": true, "type": "data-breakpoint", "token": token,
