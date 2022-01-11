@@ -240,15 +240,18 @@ export class HGDBDebugSession extends LoggingDebugSession {
                 breakpoints_result.push(b);
             } else {
                 // we only need to create new breakpoint if we haven't created it yet at the same location
+                let same_line_location = true;
+                for (let i = 1; i < bps.length; i++) {
+                    if (bps[i].line_num !== bps[0].line_num || bps[i].column_num !== bps[0].column_num) {
+                        same_line_location = false;
+                    }
+                }
                 for (let i = 0; i < bps.length; i++) {
                     const bp = bps[i];
                     const b = <DebugProtocol.Breakpoint>new Breakpoint(bp.valid, this.convertDebuggerLineToClient(bp.line_num),
                         bp.column_num > 0 ? this.convertDebuggerColumnToClient(bp.column_num) : undefined);
                     b.id = bp.id;
-                    // notice that if there are multiple lines and we only see line number
-                    // we only need to set the first one
-                    // for some random reason
-                    if (i === 0 || (bps.length > 1 && bp_entry.column !== undefined)) {
+                    if (same_line_location || (bps.length > 1 && bp_entry.column !== undefined)) {
                         breakpoints_result.push(b);
                         await this._runtime.setBreakpoint(bp.id, bp_entry.condition);
                     }
