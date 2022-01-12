@@ -40,7 +40,7 @@ def start_program(port):
     dirname = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     hgdb = os.path.join(dirname, "hgdb")
     # use a fake db for arguments
-    args = [hgdb, "no-db", "-p", str(port), "--no-db-connection"]
+    args = [hgdb, ":" + str(port),  "no-db", "--no-db-connection"]
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     return p
 
@@ -130,6 +130,7 @@ def test_data_breakpoint():
     assert "3\ttest.py:5\tc" in out
     s.kill()
     p.kill()
+
 
 if __name__ == "__main__":
     test_data_breakpoint()

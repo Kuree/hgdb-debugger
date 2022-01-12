@@ -6,6 +6,7 @@ import asyncio
 import pprint
 import pathlib
 import enum
+import urllib
 
 import prompt_toolkit.history
 from hgdb import HGDBClient, HGDBClientException
@@ -21,8 +22,8 @@ from prompt_toolkit.key_binding import KeyBindings
 
 def get_arguments():
     parser = argparse.ArgumentParser("hgdb debugger")
+    parser.add_argument("hostname", type=str, help="Hostname")
     parser.add_argument("db", type=str, help="Filename to the symbol table")
-    parser.add_argument("--port", "-p", dest="port", type=int, help="Port number for the simulator", default=8888)
     parser.add_argument("--no-db-connection", dest="no_db_connection", action="store_true",
                         help="If present, will not inform the simulator about the debug symbol table", default=False)
     parser.add_argument("--dir", "-d", "-w", "--workspace", dest="directory", type=str, default="",
@@ -492,8 +493,10 @@ class HelpCommand(SubCommand):
             self.info.print_help()
 
 
-async def get_client(filename, port, skip_connection=False):
-    uri = "ws://localhost:{0}".format(port)
+async def get_client(filename, hostname: str, skip_connection=False):
+    if hostname[0] == ':' and len(hostname) > 1 and hostname[1:].isdigit():
+        hostname = "localhost" + hostname
+    uri = "ws://" + hostname
     # create a client and try to connect
     client = HGDBClient(uri, None if skip_connection else filename)
     # connect
@@ -718,7 +721,7 @@ def main():
     args = get_arguments()
     filename = args.db
 
-    client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, args.port,
+    client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, args.hostname,
                                                                                 args.no_db_connection))
     if client is None:
         exit(1)
