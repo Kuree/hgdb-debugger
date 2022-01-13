@@ -565,14 +565,21 @@ export class HGDBDebugSession extends LoggingDebugSession {
     }
 
     protected async dataBreakpointInfoRequest(response: DebugProtocol.DataBreakpointInfoResponse, args: DebugProtocol.DataBreakpointInfoArguments, request?: DebugProtocol.Request) {
-        const name = args.name;
+        let fullName: string;
+        if (args.variablesReference) {
+            const varInfo = this.getVariableHandle(args.name, args.variablesReference);
+            fullName = varInfo.fullName;
+        } else {
+            fullName = args.name;
+        }
+
         const instance_id = this._getInstanceID(args.variablesReference);
         let error = false;
         if (instance_id === undefined) {
             error = true;
         } else {
             if (!error) {
-                error = !(await this._runtime.validateDataBreakpoint(instance_id, name));
+                error = !(await this._runtime.validateDataBreakpoint(instance_id, fullName));
             }
         }
 
@@ -584,7 +591,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
         };
 
         if (!error && instance_id !== undefined) {
-            response.body.dataId = instance_id.toString() + "-" + args.name;
+            response.body.dataId = instance_id.toString() + "-" + fullName;
             response.body.description = args.name;
             response.body.accessTypes = ["write"];
             response.body.canPersist = true;
@@ -645,14 +652,13 @@ export class HGDBDebugSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
-    protected async setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments, request?: DebugProtocol.Request) {
-        const ref = args.variablesReference;
+
+    protected getVariableHandle(argName: string, ref: number) {
         const handle = this._variableHandles.get(ref);
         // compute based on the handle str
         const raw_tokens = handle.split('-').filter(n => n);
         const id: string = raw_tokens.length === 3 ? raw_tokens[0] : raw_tokens[3];
         const instance_id: number = parseInt(raw_tokens[1]);
-        const int_value: number = parseInt(args.value);
         let is_local = false;
         if (id === "local") {
             // this is local id
@@ -660,12 +666,20 @@ export class HGDBDebugSession extends LoggingDebugSession {
         }
         // need to build the final handle name
         let info = this._var_mapping.get(ref);
-        let full_name = args.name;
+        let full_name = argName;
         while (info) {
             full_name = info.name + "." + full_name;
             info = this._var_mapping.get(info.parent);
         }
-        const res = await this._runtime.setValue(full_name, int_value, instance_id, is_local);
+
+        return {fullName: full_name, is_local: is_local, instance_id: instance_id};
+    }
+
+    protected async setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments, request?: DebugProtocol.Request) {
+        const int_value: number = parseInt(args.value);
+        // compute based on the handle str
+        const info = this.getVariableHandle(args.name, args.variablesReference);
+        const res = await this._runtime.setValue(info.fullName, int_value, info.instance_id, info.is_local);
         response.success = res;
         if (res) {
             response.body = {value: args.value};
