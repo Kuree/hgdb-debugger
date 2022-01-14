@@ -567,7 +567,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
     protected async dataBreakpointInfoRequest(response: DebugProtocol.DataBreakpointInfoResponse, args: DebugProtocol.DataBreakpointInfoArguments, request?: DebugProtocol.Request) {
         let fullName: string;
         if (args.variablesReference) {
-            const varInfo = this.getVariableHandle(args.name, args.variablesReference);
+            const varInfo = this.getVariableInfo(args.name, args.variablesReference);
             fullName = varInfo.fullName;
         } else {
             fullName = args.name;
@@ -592,7 +592,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
 
         if (!error && instance_id !== undefined) {
             response.body.dataId = instance_id.toString() + "-" + fullName;
-            response.body.description = args.name;
+            response.body.description = fullName;
             response.body.accessTypes = ["write"];
             response.body.canPersist = true;
         }
@@ -653,7 +653,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
     }
 
 
-    protected getVariableHandle(argName: string, ref: number) {
+    protected getVariableInfo(argName: string, ref: number) {
         const handle = this._variableHandles.get(ref);
         // compute based on the handle str
         const raw_tokens = handle.split('-').filter(n => n);
@@ -668,7 +668,12 @@ export class HGDBDebugSession extends LoggingDebugSession {
         let info = this._var_mapping.get(ref);
         let full_name = argName;
         while (info) {
-            full_name = info.name + "." + full_name;
+            if (full_name[0] !== '[' && full_name[0] !== '.') {
+                full_name = info.name + "." + full_name;
+            } else {
+                full_name = info.name + full_name;
+            }
+
             info = this._var_mapping.get(info.parent);
         }
 
@@ -678,7 +683,7 @@ export class HGDBDebugSession extends LoggingDebugSession {
     protected async setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments, request?: DebugProtocol.Request) {
         const int_value: number = parseInt(args.value);
         // compute based on the handle str
-        const info = this.getVariableHandle(args.name, args.variablesReference);
+        const info = this.getVariableInfo(args.name, args.variablesReference);
         const res = await this._runtime.setValue(info.fullName, int_value, info.instance_id, info.is_local);
         response.success = res;
         if (res) {
