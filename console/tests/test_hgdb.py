@@ -97,7 +97,7 @@ def test_step_over():
     out = p.communicate(input=b"n\nn\nn\n")[0]
     out = out.decode("ascii")
     assert "Breakpoint 2 at test.py:1" in out
-    assert "Breakpoint 7 at test.py:1" in out
+    assert "Breakpoint 8 at test.py:1" in out
     assert "Breakpoint 0 at test.py:2" in out
     s.kill()
     p.kill()
@@ -124,7 +124,6 @@ def test_data_breakpoint():
     # continue
     out = p.communicate(input=b"w c\nc\nc\ninfo watchpoint\n")[0]
     out = out.decode("ascii")
-    print(out)
     assert "Watchpoint 0 at test.py:2" in out
     assert "Watchpoint 3 at test.py:5" in out
     assert "3\ttest.py:5\tc" in out
