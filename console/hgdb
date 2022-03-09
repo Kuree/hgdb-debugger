@@ -28,6 +28,8 @@ def get_arguments():
                         help="If present, will not inform the simulator about the debug symbol table", default=False)
     parser.add_argument("--dir", "-d", "-w", "--workspace", dest="directory", type=str, default="",
                         help="Workspace directory to search when the filename is relative")
+    parser.add_argument("--map", type=str, default="", help="File mapping for remote debugging. "
+                                                            "The format is remote_dir:local_dir")
     args = parser.parse_args()
     return args
 
@@ -493,12 +495,21 @@ class HelpCommand(SubCommand):
             self.info.print_help()
 
 
-async def get_client(filename, hostname: str, skip_connection=False):
+async def get_client(filename, hostname: str, skip_connection=False, src_mapping=None):
     if hostname[0] == ':' and len(hostname) > 1 and hostname[1:].isdigit():
         hostname = "localhost" + hostname
     uri = "ws://" + hostname
+    # check if src_mapping is up
+    if not src_mapping:
+        src_mapping = None
+    else:
+        # use ':' to split it into half
+        dirs = src_mapping.split(":")
+        if len(dirs) != 2:
+            raise ValueError("Invalid src mapping. Got " + src_mapping)
+        src_mapping = {dirs[0]: dirs[1]}
     # create a client and try to connect
-    client = HGDBClient(uri, None if skip_connection else filename)
+    client = HGDBClient(uri, None if skip_connection else filename, src_mapping=src_mapping)
     # connect
     try:
         await client.connect()
@@ -722,7 +733,8 @@ def main():
     filename = args.db
 
     client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, args.hostname,
-                                                                                args.no_db_connection))
+                                                                                args.no_db_connection,
+                                                                                src_mapping=args.map))
     if client is None:
         exit(1)
     # prompt session

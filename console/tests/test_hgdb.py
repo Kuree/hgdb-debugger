@@ -36,11 +36,16 @@ def find_free_port():
         return s.getsockname()[1]
 
 
-def start_program(port):
+def start_program(port, **kwargs):
     dirname = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     hgdb = os.path.join(dirname, "hgdb")
     # use a fake db for arguments
     args = [hgdb, ":" + str(port),  "no-db", "--no-db-connection"]
+    extra_args = []
+    for n, v in kwargs.items():
+        extra_args.append("--" + n)
+        extra_args.append(v)
+    args = args + extra_args
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     return p
 
@@ -131,5 +136,19 @@ def test_data_breakpoint():
     p.kill()
 
 
+def test_src_mapping():
+    port = find_free_port()
+    # start the server
+    s = start_server(port, "test_debug_server")
+    # run the debugger
+    p = start_program(port, map=":/tmp")
+    # continue
+    out = p.communicate(input=b"b /tmp/test.py:1\nc\n")[0]
+    out = out.decode("ascii")
+    assert "Breakpoint 2 at test.py:1" in out
+    s.kill()
+    p.kill()
+
+
 if __name__ == "__main__":
-    test_data_breakpoint()
+    test_src_mapping()
