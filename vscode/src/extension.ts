@@ -65,6 +65,10 @@ class HGDBConfigurationProvider implements vscode.DebugConfigurationProvider {
             config.srcPath = "";
         }
 
+        if (!config.dapPort) {
+            config.dapPort = 0;
+        }
+
         if (!config.program) {
             // try to get it again
             await vscode.window.showInputBox({
@@ -113,13 +117,18 @@ class HGDBDebugAdapterDescriptorFactory implements vscode.DebugAdapterDescriptor
     createDebugAdapterDescriptor(session: vscode.DebugSession, executable: vscode.DebugAdapterExecutable | undefined): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
 
         if (!this.server) {
-            // start listening on a random port
+            // start listening on the part given by the configuration
+            const configuration = session.configuration;
+            let port = 0;
+            if (configuration.dapPort) {
+                port = configuration.dapPort;
+            }
             this.server = Net.createServer(socket => {
                 const session = new HGDBDebugSession();
                 this.session = session;
                 session.setRunAsServer(true);
                 session.start(<NodeJS.ReadableStream>socket, socket);
-            }).listen(0);
+            }).listen(port);
         }
 
         // make VS Code connect to debug server

@@ -62,8 +62,13 @@
               },
               "dstPath": {
                 "type": "string",
-                "description": "Remote reserver's code path",
+                "description": "Remote server's code path",
                 "default": ""
+              },
+              "dapPort": {
+                "type": "number",
+                "description": "Debug Adapter Protocol server port number",
+                "default": 0
               }
             }
           }
