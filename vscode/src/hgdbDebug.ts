@@ -459,9 +459,6 @@ export class HGDBDebugSession extends LoggingDebugSession {
                                 }
                                 if (is_array) {
                                     value = "Array";
-                                    if (!isNaN(Number(next_name))) {
-                                        next_name = `[${next_name}]`;
-                                    }
                                 }
                                 variables.push({
                                     name: next_name,
