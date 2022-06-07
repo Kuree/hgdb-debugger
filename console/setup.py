@@ -9,7 +9,7 @@ with open(os.path.join(current_directory, 'README.rst')) as f:
 
 setup(
     name='hgdb-debugger',
-    version='0.0.6',
+    version='0.0.7',
     author='Keyi Zhang',
     author_email='keyi@cs.stanford.edu',
     long_description=long_description,

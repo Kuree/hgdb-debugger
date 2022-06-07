@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] - 2022-06-06
+### Added
+- Add source mapping support in the console
+- Allow DAP port to be configured ahead of time (#9)
+- Allow debugging C/C++ host languages
+
+### Changed
+- Make the vscode extension workspace only
+
+### Fixed
+- Fix nest array hierarchy in code code that results in duplicated entries
+
 ## [0.0.6] - 2022-03-08
 ### Added
 - Add data breakpoint in both vscode and console

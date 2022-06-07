@@ -3,7 +3,7 @@
   "displayName": "hgdb-vscode",
   "description": "Debugger for HGDB Framework",
   "publisher": "keyiz",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "license": "BSD-2-Clause",
   "engines": {
     "vscode": "^1.33.0"
