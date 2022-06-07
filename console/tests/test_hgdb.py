@@ -102,7 +102,7 @@ def test_step_over():
     out = p.communicate(input=b"n\nn\nn\n")[0]
     out = out.decode("ascii")
     assert "Breakpoint 2 at test.py:1" in out
-    assert "Breakpoint 8 at test.py:1" in out
+    assert "Breakpoint 9 at test.py:1" in out
     assert "Breakpoint 0 at test.py:2" in out
     s.kill()
     p.kill()
