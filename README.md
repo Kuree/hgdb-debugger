@@ -41,7 +41,7 @@ $ pip install hgdb-debugger
 Below is an example usage
 
 ```
-$ hgdb -i debug.db
+$ hgdb localhost:8888 debug.db
 ```
 
 Supported Features:
