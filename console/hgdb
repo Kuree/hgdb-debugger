@@ -71,6 +71,8 @@ class DebuggingInformation:
         self.current_breakpoint_cn = 0
         self.current_breakpoint_id = 0
         self.current_breakpoint_type = 0
+        # namespace
+        self.namespace = 0
         # for local vars
         self.local_vars = {}
         # already set values
@@ -94,6 +96,7 @@ class DebuggingInformation:
         self.current_breakpoint_fn = payload["filename"]
         self.current_breakpoint_ln = payload["line_num"]
         self.current_breakpoint_cn = payload["column_num"]
+        self.namespace = payload["namespace"]
         # whenever we receive a resp, set the instance index to 0
         self.current_instance_index = 0
         instance = payload["instances"][self.current_instance_index]
