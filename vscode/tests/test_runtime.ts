@@ -19,7 +19,7 @@ function get_random_port() {
 
 
 function start_mock_server(port, extra_flags?: Array<string>) {
-    // the root is the the very top of the repo, which is shared by all debuggers for testing
+    // the root is the very top of the repo, which is shared by all debuggers for testing
     const root = path.dirname(path.dirname(path.dirname(__filename)));
     const build_dir = path.join(root, "build");
     const exe = path.join(build_dir, "tests", "test_debug_server");
@@ -185,7 +185,7 @@ describe('runtime', function () {
         let result = await runtime.handleREPL("1 + 41");
         expect(result).eq("42");
         // set scope
-        await runtime.handleREPL("scope mod");
+        await runtime.handleREPL("scope 1");
         result = await runtime.handleREPL("1 + a");
         expect(result).eq("2");
         p.kill();
@@ -235,7 +235,7 @@ describe('runtime', function () {
         expect(res).eq(true);
         await runtime.continue();
         await sleep(200);
-        const result = await runtime.handleREPL("1 + a", "1");
+        const result = await runtime.handleREPL("1 + a", 1);
         expect(result).eq("43");
         p.kill();
     });

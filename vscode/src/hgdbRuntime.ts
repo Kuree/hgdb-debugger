@@ -43,7 +43,7 @@ export class HGDBRuntime extends EventEmitter {
     private _dstPath: string = "";
 
     // scope for repl
-    private _currentScope: string = "";
+    private _currentScope: number = 0;
 
     // token id
     private _tokenCount: number = 0;
@@ -207,9 +207,13 @@ export class HGDBRuntime extends EventEmitter {
             const entry = instances[i];
             const local: Object = entry["local"];
             const generator: Object = entry["generator"];
-            const instance_id = entry["instance_id"];
+            const instance_id_ = entry["instance_id"];
             const instance_name = entry["instance_name"];
-            const breakpoint_id = entry["breakpoint_id"];
+            const breakpoint_id_ = entry["breakpoint_id"];
+            const namespace_id = entry["namespace_id"];
+
+            const instance_id = this.get_id_ns_to(instance_id_, namespace_id);
+            const breakpoint_id = this.get_id_ns_to(breakpoint_id_, namespace_id);
 
             // convert them into the format and store them
             const local_variables_raw = new Map<string, string>(Object.entries(local));
@@ -455,9 +459,13 @@ export class HGDBRuntime extends EventEmitter {
             const line_num = this.currentLineNum();
             const col_num = this.currentColNum();
             for (let i = 0; i < num_frames; i++) {
+                let name = this._currentGeneratorNames.get(instance_id);
+                if (!name) {
+                    name = `Instance ID ${instance_id}`;
+                }
                 frames.push({
                     index: HGDBRuntime.getFrameID(instance_id, i),
-                    name: `Instance ID ${instance_id}`,
+                    name: `[${instance_id}]: ${name}`,
                     file: filename,
                     line: line_num,
                     col: col_num
@@ -516,28 +524,32 @@ export class HGDBRuntime extends EventEmitter {
         return promise;
     }
 
-    public async handleREPL(expression: string, scope?: string) {
+    public async handleREPL(expression: string, scope?: number) {
         const tokens = expression.split(" ");
         if (tokens[0] === "scope") {
             if (tokens.length !== 2) {
                 return "Invalid set-scope command: " + expression;
             }
-            this._currentScope = tokens[1];
+            let p = parseInt(tokens[1]);
+            if (p) {
+                this._currentScope = p;
+            }
+            this._currentScope = parseInt(tokens[1]);
             return "";
         } else if (tokens[0] === "clear") {
-            this._currentScope = "";
+            this._currentScope = 0;
             return "";
         } else {
             // ask the server about the values
             // we only allow evaluation inside the scope of an instance, not the current breakpoint
             // since we can have multiple frames at the same, and VS code won't notify us which one
             // is active
-            return await this.sendEvaluation(scope ? scope : this._currentScope, expression, false);
+            return await this.sendEvaluation(scope ? scope : this._currentScope, expression);
         }
     }
 
     public async evaluateInstanceScope(expression: string, instance_id: number) {
-        return await this.sendEvaluation(instance_id.toString(), expression, false);
+        return await this.sendEvaluation(instance_id, expression);
     }
 
     public async setValue(var_name: string, value: number, id: number, is_local: boolean) {
@@ -551,10 +563,14 @@ export class HGDBRuntime extends EventEmitter {
         if (is_local) {
             const breakpoint_id = this._currentBreakpointIDs.get(id);
             if (breakpoint_id) {
-                payload["payload"]["breakpoint_id"] = breakpoint_id;
+                const [b_id, ns_id] = this.get_id_ns_from(breakpoint_id);
+                payload["payload"]["breakpoint_id"] = b_id;
+                payload["payload"]["namespace_id"] = ns_id;
             }
         } else {
-            payload["payload"]["instance_id"] = id;
+            const [inst_id, ns_id] = this.get_id_ns_from(id);
+            payload["payload"]["instance_id"] = inst_id;
+            payload["payload"]["namespace_id"] = ns_id;
         }
 
         let promise = new Promise<boolean>((resolve, reject) => {
@@ -605,13 +621,13 @@ export class HGDBRuntime extends EventEmitter {
 
     }
 
-    private async sendEvaluation(scope: string, expression: string, is_context: boolean) {
+    private async sendEvaluation(breakpoint_id: number, expression: string) {
         const token = this.getToken();
         const payload = {
             "request": true,
             "type": "evaluation",
             "token": token,
-            "payload": {"scope": scope, "expression": expression, "is_context": is_context}
+            "payload": {"breakpoint_id": breakpoint_id, "expression": expression}
         };
 
         return new Promise<string>((async (resolve) => {
@@ -769,5 +785,20 @@ export class HGDBRuntime extends EventEmitter {
         setImmediate(_ => {
             this.emit(event, ...args);
         });
+    }
+
+    /**
+     * handles breakpoint id and its native representation
+     */
+    private get_id_ns_from(id: number): [number, number] {
+        // we use the fact that JS number is 53 bit. we just shift the ns to 32
+        let i = Number(Number(id) & Number(0xFFFFFFFF));
+        let ns_id = Number(Number(id) >> Number(32));
+        return [i, ns_id];
+    }
+
+    private get_id_ns_to(id: number, ns_id: number) : number {
+        let res_ns_id = Number(ns_id) << Number(32);
+        return Number(id) | res_ns_id;
     }
 }
