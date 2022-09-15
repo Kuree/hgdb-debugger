@@ -732,9 +732,10 @@ def main():
     args = get_arguments()
     filename = args.db
 
-    client: HGDBClient = asyncio.get_event_loop().run_until_complete(get_client(filename, args.hostname,
-                                                                                args.no_db_connection,
-                                                                                src_mapping=args.map))
+    client: HGDBClient = asyncio.get_event_loop_policy().get_event_loop().run_until_complete(
+        get_client(filename, args.hostname,
+                   args.no_db_connection,
+                   src_mapping=args.map))
     if client is None:
         exit(1)
     # prompt session
@@ -756,7 +757,7 @@ def main():
 
     # loop until finish
     try:
-        asyncio.get_event_loop().run_until_complete(main_loop(client, session, info, parser))
+        asyncio.get_event_loop_policy().get_event_loop().run_until_complete(main_loop(client, session, info, parser))
     except (KeyboardInterrupt, EOFError):
         print("exit")
 
