@@ -301,6 +301,11 @@ class PrintCommand(SubCommand):
         if target is not None:
             pprint.pprint(target)
             return
+        # special values
+        special_values = {"breakpoint-id": self.info.current_scope, "namespace-id": self.info.namespace_id}
+        if expr in special_values:
+            pprint.pprint(special_values[expr])
+            return
         breakpoint_id = None if len(self.info.current_scope) == 0 else int(self.info.current_scope)
         resp = await self.client.evaluate(expr, breakpoint_id=breakpoint_id,
                                           namespace_id=self.info.namespace_id, check_error=False)
