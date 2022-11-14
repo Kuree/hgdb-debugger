@@ -185,7 +185,8 @@ describe('runtime', function () {
         let result = await runtime.handleREPL("1 + 41");
         expect(result).eq("42");
         // set scope
-        await runtime.handleREPL("scope mod");
+        await runtime.handleREPL("scope-breakpoint 0");
+        await runtime.handleREPL("scope-namespace 1");
         result = await runtime.handleREPL("1 + a");
         expect(result).eq("2");
         p.kill();
@@ -235,7 +236,9 @@ describe('runtime', function () {
         expect(res).eq(true);
         await runtime.continue();
         await sleep(200);
-        const result = await runtime.handleREPL("1 + a", "1");
+        await runtime.handleREPL("scope-breakpoint 0");
+        await runtime.handleREPL("scope-namespace 1");
+        const result = await runtime.handleREPL("1 + a");
         expect(result).eq("43");
         p.kill();
     });

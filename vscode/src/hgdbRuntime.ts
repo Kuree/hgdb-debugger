@@ -21,6 +21,7 @@ export class HGDBRuntime extends EventEmitter {
     private _currentLocalVariables = new Map<number, Array<Map<string, string>>>();
     private _currentGeneratorNames = new Map<number, string>();
     private _currentBreakpointIDs = new Map<number, number>();
+    private _currentNamespaceIDs = new Map<number, number>();
     private _currentGeneratorVariables = new Map<number, Array<Map<string, string>>>();
     private _currentBreakpointTypes = new Map<number, string>();
     private _currentTime = 0;
@@ -43,7 +44,8 @@ export class HGDBRuntime extends EventEmitter {
     private _dstPath: string = "";
 
     // scope for repl
-    private _currentScope: string = "";
+    private _currentBreakpointID: number = 0;
+    private _currentNamespaceID: number = 0;
 
     // token id
     private _tokenCount: number = 0;
@@ -210,6 +212,7 @@ export class HGDBRuntime extends EventEmitter {
             const instance_id = entry["instance_id"];
             const instance_name = entry["instance_name"];
             const breakpoint_id = entry["breakpoint_id"];
+            const namespace_id = entry["namespace_id"];
 
             // convert them into the format and store them
             const local_variables_raw = new Map<string, string>(Object.entries(local));
@@ -236,6 +239,7 @@ export class HGDBRuntime extends EventEmitter {
             // set up the mapping between instance name and breakpoint id
             // used for REPL
             this._currentBreakpointIDs.set(instance_id, breakpoint_id);
+            this._currentNamespaceIDs.set(instance_id, namespace_id);
             // set the breakpoint type
             const bp_type = entry["bp_type"];
             this._currentBreakpointTypes.set(instance_id, bp_type);
@@ -516,28 +520,36 @@ export class HGDBRuntime extends EventEmitter {
         return promise;
     }
 
-    public async handleREPL(expression: string, scope?: string) {
+    public async handleREPL(expression: string) {
         const tokens = expression.split(" ");
-        if (tokens[0] === "scope") {
+        if (tokens[0] === "scope-namespace") {
             if (tokens.length !== 2) {
                 return "Invalid set-scope command: " + expression;
             }
-            this._currentScope = tokens[1];
+            this._currentNamespaceID = Number(tokens[1]);
             return "";
+        } else if (tokens[0] === "scope-breakpoint") {
+            if (tokens.length !== 2) {
+                return "Invalid set-scope command: " + expression;
+            }
+            this._currentBreakpointID = Number(tokens[1]);
+            return "";
+
         } else if (tokens[0] === "clear") {
-            this._currentScope = "";
+            this._currentNamespaceID = 0;
+            this._currentBreakpointID = 0;
             return "";
         } else {
             // ask the server about the values
             // we only allow evaluation inside the scope of an instance, not the current breakpoint
             // since we can have multiple frames at the same, and VS code won't notify us which one
             // is active
-            return await this.sendEvaluation(scope ? scope : this._currentScope, expression, false);
+            return await this.sendEvaluation(this._currentNamespaceID, this._currentBreakpointID, expression, true);
         }
     }
 
     public async evaluateInstanceScope(expression: string, instance_id: number) {
-        return await this.sendEvaluation(instance_id.toString(), expression, false);
+        return await this.sendEvaluation(this._currentNamespaceID, instance_id,  expression, false);
     }
 
     public async setValue(var_name: string, value: number, id: number, is_local: boolean) {
@@ -552,6 +564,10 @@ export class HGDBRuntime extends EventEmitter {
             const breakpoint_id = this._currentBreakpointIDs.get(id);
             if (breakpoint_id) {
                 payload["payload"]["breakpoint_id"] = breakpoint_id;
+            }
+            const namespace_id = this._currentNamespaceIDs.get(id);
+            if (namespace_id) {
+                payload["payload"]["namespace_id"] = namespace_id;
             }
         } else {
             payload["payload"]["instance_id"] = id;
@@ -605,14 +621,20 @@ export class HGDBRuntime extends EventEmitter {
 
     }
 
-    private async sendEvaluation(scope: string, expression: string, is_context: boolean) {
+    private async sendEvaluation(namespace_id: number, id: number, expression: string, is_context: boolean) {
         const token = this.getToken();
-        const payload = {
+        let payload = {
             "request": true,
             "type": "evaluation",
             "token": token,
-            "payload": {"scope": scope, "expression": expression, "is_context": is_context}
+            "payload": {"expression": expression, "namespace_id": namespace_id}
         };
+
+        if (is_context) {
+            payload.payload["breakpoint_id"] = id;
+        } else {
+            payload.payload["instance_id"] = id;
+        }
 
         return new Promise<string>((async (resolve) => {
             this.addCallback(token, async (resp) => {
