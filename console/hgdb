@@ -63,6 +63,7 @@ class DebuggingInformation:
     def __init__(self, formatter, workspace):
         # list of commands
         self.current_scope = ""
+        self.namespace_id = 0
         self.commands = {}
         self.commands_help = {}
         self.file_context_cache = {}
@@ -100,6 +101,7 @@ class DebuggingInformation:
         self.current_breakpoint_type = instance["bp_type"]
         self.current_breakpoint_id = instance["breakpoint_id"]
         self.current_scope = str(self.current_breakpoint_id)
+        self.namespace_id = instance["namespace_id"]
         self.local_vars = parse_local(instance["local"])
         self.current_breakpoint_resp = resp
         self.current_time = payload["time"]
@@ -299,7 +301,9 @@ class PrintCommand(SubCommand):
         if target is not None:
             pprint.pprint(target)
             return
-        resp = await self.client.evaluate(self.info.current_scope, expr, is_context=True, check_error=False)
+        breakpoint_id = None if len(self.info.current_scope) == 0 else int(self.info.current_scope)
+        resp = await self.client.evaluate(expr, breakpoint_id=breakpoint_id,
+                                          namespace_id=self.info.namespace_id, check_error=False)
         if self.check_error(resp):
             if "result" not in resp["payload"]:
                 print("Error in protocol setup\nRESP:", resp)
@@ -332,7 +336,7 @@ class SetValueCommand(SubCommand):
             print("Invalid scope")
             return
         resp = await self.client.set_value(var, int(value), breakpoint_id=int(self.info.current_scope),
-                                           check_error=False)
+                                           namespace_id=self.info.namespace_id, check_error=False)
         if self.check_error(resp):
             self.info.set_values.add(var)
 
